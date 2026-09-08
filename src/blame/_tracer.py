@@ -30,6 +30,7 @@ _ACTIVE: "Tracer | None" = None
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 _LPOS = "__blame_lpos__"
 _RPOS = "__blame_rpos__"
+_POS = "__blame_pos__"
 
 
 def active() -> "Tracer | None":
@@ -325,11 +326,87 @@ def _positions_by_index(parent, out) -> np.ndarray | None:
     return np.asarray(take, dtype=np.int64)
 
 
-def _row_lineage(parent, out) -> lin.Lineage:
-    """Best-effort row mapping for a single-parent operation."""
+_POSITIONAL_OPS = {"head", "tail"}
+
+
+def _positional_take(name: str, parent, args, kwargs):
+    """head and tail select by position, so no index is needed to map them.
+    Mirrors pandas: head is iloc[:n], tail is iloc[-n:] (empty when n is 0)."""
+    n = kwargs.get("n", args[0] if args else 5)
+    if not isinstance(n, (int, np.integer)) or isinstance(n, bool):
+        return None
+    rows = np.arange(len(parent), dtype=np.int64)
+    if name == "head":
+        return rows[:n]
+    return rows[-n:] if n else rows[:0]
+
+
+def _replay_is_safe(name: str, args, kwargs) -> bool:
+    """Can this operation tolerate one extra column without changing what it
+    selects? Anything that inspects every column cannot."""
+    if name in ("sort_values", "sort_index", "nlargest", "nsmallest", "take",
+                "query", "truncate", "reindex", "drop"):
+        return True
+    if name == "dropna":       # `all` and `thresh` count the columns
+        return kwargs.get("how", "any") != "all" and kwargs.get("thresh") is None
+    if name == "drop_duplicates":   # without a subset, the tag makes every row unique
+        return kwargs.get("subset", args[0] if args else None) is not None
+    return False
+
+
+def _positions_by_replay(orig, name, parent, out, args, kwargs):
+    """Exact positions for a frame whose index cannot identify its own rows.
+
+    Carries a hidden position column through a second run of the operation --
+    the trick the merge handler uses -- and reads it back afterwards. Costs one
+    extra execution of that one step, and only on the path that would otherwise
+    give up and report every input row as a candidate.
+    """
+    import pandas as pd
+
+    if orig is None or not isinstance(parent, pd.DataFrame) or _POS in parent.columns:
+        return None
+    if not _replay_is_safe(name, args, kwargs):
+        return None
+    tagged = parent.copy(deep=False)
+    tagged[_POS] = np.arange(len(parent), dtype=np.int64)
+    replay = orig(tagged, *args, **kwargs)
+    if not isinstance(replay, pd.DataFrame) or _POS not in replay.columns:
+        return None
+    if len(replay) != len(out):
+        return None
+    take = replay[_POS].to_numpy(dtype="float64", na_value=np.nan)
+    return np.nan_to_num(take, nan=lin.MISSING).astype(np.int64)
+
+
+def _row_lineage(parent, out, name=None, args=(), kwargs=None, orig=None) -> lin.Lineage:
+    """Best-effort row mapping for a single-parent operation.
+
+    Three attempts, cheapest first: positional ops need nothing, the index
+    answers for most of the rest, and replaying the step with tagged positions
+    rescues frames whose index has duplicates.
+    """
     n_in, n_out = len(parent), len(out)
-    take = _positions_by_index(parent, out)
-    if take is not None and (take != lin.MISSING).all():
+    kwargs = kwargs or {}
+
+    take = None
+    if name in _POSITIONAL_OPS:
+        take = _positional_take(name, parent, args, kwargs)
+        if take is not None and len(take) != n_out:
+            take = None
+    if take is None:
+        take = _positions_by_index(parent, out)
+    if take is None:
+        try:
+            take = _positions_by_replay(orig, name, parent, out, args, kwargs)
+        except Exception:
+            take = None
+
+    # -1 means "no parent row", which reindex genuinely produces. All of them
+    # missing means we failed to map rather than that nothing matched.
+    if take is not None and n_out and (take == lin.MISSING).all():
+        take = None
+    if take is not None:
         if n_out == n_in and np.array_equal(take, np.arange(n_in)):
             return lin.Identity(n_in)
         return lin.Select(take)
@@ -382,7 +459,7 @@ def _simple(handler):
                 finally:
                     elapsed = time.perf_counter() - start
                 try:
-                    handler(t, name, self, out, args, kwargs, elapsed)
+                    handler(t, name, self, out, args, kwargs, elapsed, orig)
                 except Exception as exc:  # never break the user's pipeline
                     t.warn(f"{name}: lineage capture failed ({type(exc).__name__}: {exc})")
             finally:
@@ -400,15 +477,19 @@ def _traceable(obj) -> bool:
     return isinstance(obj, (pd.DataFrame, pd.Series))
 
 
-def _h_rows(t, name, parent, out, args, kwargs, elapsed):
+def _h_rows(t, name, parent, out, args, kwargs, elapsed, orig=None):
     """Ops with one frame input whose rows map back positionally."""
     if not _traceable(out) or not _traceable(parent):
         return
-    t.record(name, [parent], out, _row_lineage(parent, out), _detail(args, kwargs),
+    lineage = _row_lineage(parent, out, name, args, kwargs, orig)
+    if lineage.approximate:
+        t.warn(f"{name}: could not identify rows exactly "
+               f"(duplicate index and no safe replay); lineage is approximate")
+    t.record(name, [parent], out, lineage, _detail(args, kwargs),
              _column_map(parent, out), elapsed)
 
 
-def _h_getitem(t, name, parent, out, args, kwargs, elapsed):
+def _h_getitem(t, name, parent, out, args, kwargs, elapsed, orig=None):
     import pandas as pd
 
     if not _traceable(out) or not _traceable(parent):
@@ -422,29 +503,35 @@ def _h_getitem(t, name, parent, out, args, kwargs, elapsed):
                      _column_map(parent, out), elapsed)
             return
     if isinstance(key, slice):
-        take = np.arange(len(parent), dtype=np.int64)[key]
-        t.record("slice", [parent], out, lin.Select(take), _detail(args, kwargs),
-                 _column_map(parent, out), elapsed)
+        bounds = (key.start, key.stop, key.step)
+        if all(b is None or (isinstance(b, (int, np.integer)) and not isinstance(b, bool))
+               for b in bounds):
+            take = np.arange(len(parent), dtype=np.int64)[key]
+            t.record("slice", [parent], out, lin.Select(take), _detail(args, kwargs),
+                     _column_map(parent, out), elapsed)
+            return
+        # a label slice (dates, strings): let the index map it instead
+        _h_rows(t, "slice", parent, out, args, kwargs, elapsed, orig)
         return
     if len(out) == len(parent):
         t.record("select", [parent], out, lin.Identity(len(parent)), _detail(args, kwargs),
                  _column_map(parent, out), elapsed)
         return
-    _h_rows(t, name, parent, out, args, kwargs, elapsed)
+    _h_rows(t, name, parent, out, args, kwargs, elapsed, orig)
 
 
-def _h_identity(t, name, parent, out, args, kwargs, elapsed):
+def _h_identity(t, name, parent, out, args, kwargs, elapsed, orig=None):
     """Row-preserving, order-preserving ops: assign, rename, astype, fillna..."""
     if not _traceable(out) or not _traceable(parent):
         return
     if len(out) != len(parent):
-        _h_rows(t, name, parent, out, args, kwargs, elapsed)
+        _h_rows(t, name, parent, out, args, kwargs, elapsed, orig)
         return
     t.record(name, [parent], out, lin.Identity(len(parent)), _detail(args, kwargs),
              _column_map(parent, out), elapsed)
 
 
-def _h_apply(t, name, parent, out, args, kwargs, elapsed):
+def _h_apply(t, name, parent, out, args, kwargs, elapsed, orig=None):
     if not _traceable(out) or not _traceable(parent):
         return
     if kwargs.get("axis") in (1, "columns") or len(out) == len(parent):
@@ -544,6 +631,23 @@ def _concat_factory(orig, name):
         finally:
             t._depth -= 1
         return out
+
+    return wrapper
+
+
+def _guard_factory(orig, name):
+    """Plotting and display: the frames these build internally are matplotlib's
+    business, not steps in the user's pipeline. Run them with tracing off."""
+
+    def wrapper(self, *args, **kwargs):
+        t = _ACTIVE
+        if t is None:
+            return orig(self, *args, **kwargs)
+        t._depth += 1
+        try:
+            return orig(self, *args, **kwargs)
+        finally:
+            t._depth -= 1
 
     return wrapper
 
@@ -651,6 +755,32 @@ def _agg_factory(orig, name):
     return wrapper
 
 
+_FINALIZE_NOISE = {"__finalize__", "wrapper", "f", "new_func", "_constructor",
+                   "__init__", "__call__", "pipe", "apply", "_apply"}
+
+
+def _derive_method(method) -> str:
+    """The name of the pandas operation that produced a frame.
+
+    pandas passes `method` to __finalize__ only sometimes. When it does not,
+    the outermost public pandas function on the stack is the operation the user
+    called -- "pivot" reads a great deal better than "?".
+    """
+    if method:
+        return str(method)
+    found = None
+    frame = inspect.currentframe()
+    for _ in range(40):
+        if frame is None:
+            break
+        code = frame.f_code
+        if "pandas" in code.co_filename and not code.co_name.startswith("_") \
+                and code.co_name not in _FINALIZE_NOISE:
+            found = code.co_name
+        frame = frame.f_back
+    return found or "?"
+
+
 def _finalize_factory(orig, name):
     """pandas calls __finalize__ whenever it derives one frame from another.
     At depth 0 that means an operation we do not trace just happened."""
@@ -661,7 +791,7 @@ def _finalize_factory(orig, name):
         if t is not None and t._depth == 0 and other is not self:
             try:
                 if _traceable(other) and _traceable(result):
-                    t.note_derived(result, other, method)
+                    t.note_derived(result, other, _derive_method(method))
             except Exception:
                 pass
         return result
@@ -693,6 +823,8 @@ _ID_OPS = ["assign", "rename", "astype", "fillna", "copy", "round", "clip", "rep
 _AGG_OPS = ["agg", "aggregate", "sum", "mean", "count", "size", "min", "max", "median",
             "std", "var", "nunique", "first", "last", "prod", "sem"]
 _READERS = ["read_csv", "read_parquet", "read_json", "read_excel", "read_feather"]
+# not data operations: whatever frames they build inside are not pipeline steps
+_OPAQUE_OPS = ["hist", "boxplot", "info", "to_string", "_repr_html_", "__repr__"]
 
 
 def install() -> None:
@@ -712,6 +844,9 @@ def install() -> None:
         _install(cls, "merge", _merge_factory)
         _install(cls, "join", _merge_factory)
         _install(cls, "groupby", _groupby_factory)
+        _install(cls, "resample", _groupby_factory)
+        for op in _OPAQUE_OPS:
+            _install(cls, op, _guard_factory)
 
     for cls in (pd.DataFrame, pd.Series):
         _install(cls, "__finalize__", _finalize_factory)
@@ -721,6 +856,20 @@ def install() -> None:
     for op in _AGG_OPS:
         _install(DataFrameGroupBy, op, _agg_factory)
         _install(SeriesGroupBy, op, _agg_factory)
+    try:
+        from pandas.plotting import PlotAccessor
+    except ImportError:
+        from pandas.plotting._core import PlotAccessor
+    _install(PlotAccessor, "__call__", _guard_factory)
+
+    # resample is a group-by over time bins: same machinery, and `.indices`
+    # gives the bin membership directly. __getitem__ must carry the parent
+    # across or df.resample("D")["v"].sum() loses its link to the source.
+    from pandas.core.resample import Resampler
+
+    _install(Resampler, "__getitem__", _gb_getitem_factory)
+    for op in _AGG_OPS:
+        _install(Resampler, op, _agg_factory)
     for r in _READERS:
         _install(pd, r, _reader_factory)
 
