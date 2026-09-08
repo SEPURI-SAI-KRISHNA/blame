@@ -75,11 +75,38 @@ uv venv && uv pip install -e ".[dev]"
 | Where did this input row end up? | `run.forward(row=17)` |
 | What did the pipeline actually do? | `run.table()` |
 | What did the data look like at step 12? | `run.at(12)` |
+| ...about this exact frame, not one I named | `run.why(row=2, target=report)` |
 | All of the above, by clicking | `run.ui()` or `blame ui` |
 
 Nothing in your pipeline changes. `blame` wraps pandas while the trace is
 active and restores it afterwards; your code returns exactly the objects it
 returned before.
+
+## Does it work on someone else's code?
+
+The eight data-handling tutorials from the pandas documentation — real
+idiomatic pandas written by the pandas maintainers, not by me — run under
+`blame` on pandas 2.0.3, 2.2.3 and 3.0.5:
+
+| | result |
+|---|---|
+| scripts that raised under tracing | **0 of 8** |
+| scripts whose results changed | **0 of 8** |
+| pandas calls made | 110 |
+| calls `blame` has a handler for | 96 (87%) |
+| traced steps | 135 |
+| steps that were approximate | **6 (4%)** |
+
+All six sit in one script, the reshaping tutorial, and all six are `pivot`,
+`melt`, `unstack` and `transpose` — the known gap, and the next thing to build.
+The other unhandled calls (`idxmax`, `isin`, `notna`, `unique`, `info`) do not
+return frames, so they have no row lineage to record.
+
+This is what running it on code I hadn't written was for. It found four real
+bugs — `resample` producing confidently wrong lineage, duplicate-index frames
+silently degrading `head` and `sort_values`, matplotlib internals appearing as
+pipeline steps, and label slices failing outright. All four are fixed and
+covered by tests.
 
 ## What it costs
 
@@ -102,6 +129,13 @@ per-step tax. Chaining more operations over the same million rows costs about
 | 8 | 0.145s | 0.446s | 3.1x |
 | 16 | 0.233s | 0.725s | 3.1x |
 | 32 | 0.456s | 1.346s | 3.0x |
+
+A frame whose index has duplicates cannot identify its own rows, so `blame`
+replays that one step with hidden position columns to recover them exactly
+rather than reporting every input row as a candidate. That step costs about 2x
+instead of 1.7x (at 1M rows: 225 ms against 115 ms). It applies per step, only
+on duplicate-index frames, and only for operations where an extra column cannot
+change what gets selected.
 
 Traces are written uncompressed because a local debugging cache is bound by
 write time, not disk: zstd shrinks an int64 column 2.3x but takes 14x longer to
@@ -127,17 +161,18 @@ values are genuinely new (`assign`, aggregations).
 
 ## Honesty about accuracy
 
-Lineage is **exact** for filters, slices, sorts, joins, group-bys, concats,
-column projections and the row-preserving transforms (`assign`, `rename`,
-`astype`, `fillna`, ...).
+Lineage is **exact** for filters, slices (positional and label), sorts, joins,
+group-bys, `resample`, concats, column projections and the row-preserving
+transforms (`assign`, `rename`, `astype`, `fillna`, ...) — including on frames
+whose index has duplicates.
 
 It is **approximate** in two situations, and says so in both:
 
 *An opaque user function* — `apply`, `map`, `transform` with a lambda. `blame`
 assumes row identity and marks the step `~`.
 
-*An operation `blame` does not cover* — `pivot_table`, `unstack`, `melt` and
-friends. pandas tells us it derived one frame from another, so rather than
+*An operation `blame` does not cover* — `pivot`, `pivot_table`, `unstack`,
+`melt`, `transpose`. pandas tells us it derived one frame from another, so rather than
 letting the intermediate pose as a pipeline input, `blame` inserts an explicit
 step and widens the answer to every candidate row:
 
@@ -159,11 +194,13 @@ python examples/pipeline.py      # a pipeline with a planted double-counting bug
 blame steps                      # what it did
 blame why 1 --col total --show 5 # why the "south" total is wrong
 blame ui                         # the same answer, by clicking
-pytest -q                        # 29 tests, ground-truth checked
+pytest -q                        # 37 tests, ground-truth checked
 ```
+
+Tested against pandas 2.0.3, 2.2.3 and 3.0.5, on Python 3.11 and 3.12.
 
 ## Status
 
 v0.1 is the tracer, the store and the query API for pandas, with a CLI; v0.3
-is the page above. `blame diff run1 run2`, column-level `why`, and polars are
+is the page above; both are validated against third-party code as shown. `blame diff run1 run2`, column-level `why`, and polars are
 next — see `ROADMAP.md`, which also lists what is known not to work.
