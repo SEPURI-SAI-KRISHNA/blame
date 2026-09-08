@@ -25,8 +25,10 @@ Project C (the provenance-native query engine) what to build. See
       reporting every source row that fed the output row
 - [ ] `how(cell)` — the derivation expression, not just the input rows
 - [ ] A terminal UI to scrub steps, with shapes, schemas and null counts
-- [ ] `pivot`, `pivot_table`, `melt`, `stack`/`unstack`, `transpose` — the
-      entire remaining approximate surface in the validation above
+- [x] `pivot`, `pivot_table`, `melt`, `unstack` — exact, ground-truth tested.
+      The widening reshapes are group membership by index key, the same CSR
+      structure group-by uses; `melt` is `tile(arange(n), k)`.
+- [ ] `stack`, `explode`, `wide_to_long`, `transpose`, window functions
 - [ ] Series-level operations as first-class steps
 
 ## v0.3 — the web UI (done)
@@ -70,7 +72,21 @@ changed results, 135 steps traced, 6 approximate. It found four real bugs:
       leaf of the graph you meant; asking about an untraced frame now raises
       a clear error rather than answering about an unrelated one.
 
-## v0.5 — run diff
+## v0.5 — only what the user wrote (done)
+
+- [x] pandas implements its own methods with the ones we patch. One `explode`
+      was producing seven steps, two of them carrying approximate warnings
+      about operations the user never called. Operations invoked from inside
+      pandas are no longer recorded.
+- [x] Side effect: the graph is now identical across pandas 2.0, 2.2 and 3.0
+      (it used to differ by up to 24 steps, purely from internal churn), the
+      per-step cost fell from 18 ms to 5 ms, and the benchmark pipeline reports
+      the 7 operations its source actually contains rather than 10.
+- [x] Untraced origins are resolved as the chain is built. pandas discards its
+      intermediates immediately, so walking a chain of weak references to them
+      afterwards found nothing and let an intermediate pose as a source.
+
+## v0.6 — run diff
 
 - [ ] `blame diff run1 run2`: row-level differences with lineage-explained
       causes ("row 812 changed because input row 91 changed `price`")
@@ -90,9 +106,9 @@ changed results, 135 steps traced, 6 approximate. It found four real bugs:
 ## Known limits
 
 - `apply`/`map`/`transform` assume row identity and are flagged approximate.
-- Reshaping operations (`pivot`, `pivot_table`, `unstack`, `melt`, transpose)
-  are not traced row by row. They are detected and reported as approximate steps, so
-  answers through them widen to every candidate row rather than being wrong.
+- `transpose`, `stack`, `explode` and `wide_to_long` are not traced row by row.
+  They are detected and reported as approximate steps, so answers through them
+  widen to every candidate row rather than being wrong.
 - A parent frame whose index has duplicates falls back to approximate lineage
   only when the operation cannot safely be replayed with position tags —
   `drop_duplicates()` with no subset, `dropna(how="all")`, `sample()`.
