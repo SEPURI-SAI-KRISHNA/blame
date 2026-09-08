@@ -449,3 +449,121 @@ def test_ui_server_answers_the_three_endpoints():
         server.shutdown()
         server.server_close()
         thread.join(timeout=5)
+
+
+# -- found by running on third-party code ----------------------------------
+
+def test_resample_matches_ground_truth():
+    """resample is a group-by over time bins. It used to be untraced, and the
+    result frame never entered the graph at all."""
+    idx = pd.date_range("2024-01-01", periods=40, freq="6h")
+    df = pd.DataFrame({"v": np.arange(40.0), "site": list("ab") * 20}, index=idx)
+
+    with blame.trace() as h:
+        daily = df.resample("D")["v"].sum()
+
+    run = h.run
+    assert len(run.frame(run.result_fid)) == len(daily), "the result must be the traced frame"
+    for out_row in range(len(daily)):
+        day = daily.index[out_row]
+        truth = np.flatnonzero((df.index >= day) & (df.index < day + pd.Timedelta("1D")))
+        got = run.why(row=out_row).sources[run.sources[0]]
+        assert np.array_equal(got, truth), f"row {out_row}"
+
+
+def test_resample_without_column_selection_is_traced():
+    idx = pd.date_range("2024-03-01", periods=12, freq="8h")
+    df = pd.DataFrame({"v": np.arange(12.0)}, index=idx)
+    with blame.trace() as h:
+        daily = df.resample("D").sum()
+    truth = np.flatnonzero(df.index < df.index[0].normalize() + pd.Timedelta("1D"))
+    assert np.array_equal(h.run.why(row=0).sources[h.run.sources[0]], truth)
+    assert len(daily) == 4
+
+
+def test_duplicate_index_does_not_force_approximate_lineage():
+    """A duplicated index is everywhere in real data -- after concat, melt, or
+    just reading a file keyed on a non-unique column."""
+    df = pd.DataFrame({"city": list("aabbcc"), "v": [5, 3, 9, 1, 7, 2]},
+                      index=[0, 0, 1, 1, 2, 2])
+    with blame.trace() as h:
+        top = df.head(3)
+        srt = df.sort_values("v")
+
+    steps = {s.op: s for s in h.run.steps if not s.minor}
+    assert not steps["head"].approximate
+    assert not steps["sort_values"].approximate
+
+    head_fid = steps["head"].output
+    assert np.array_equal(h.run.why(row=2, target=head_fid).sources[h.run.sources[0]], [2])
+    sort_fid = steps["sort_values"].output
+    # sorted by v, so output row 0 is the smallest value: v=1, at position 3
+    assert np.array_equal(h.run.why(row=0, target=sort_fid).sources[h.run.sources[0]], [3])
+    assert srt.iloc[0]["v"] == 1 and len(top) == 3
+
+
+def test_head_and_tail_are_positional():
+    df = pd.DataFrame({"v": np.arange(10)}, index=list("aabbccddee"))
+    with blame.trace() as h:
+        first = df.head(3)
+        last = df.tail(2)
+    steps = {s.op: s.output for s in h.run.steps if not s.minor}
+    src = h.run.sources[0]
+    assert np.array_equal(h.run.why(row=[0, 1, 2], target=steps["head"]).sources[src], [0, 1, 2])
+    assert np.array_equal(h.run.why(row=[0, 1], target=steps["tail"]).sources[src], [8, 9])
+    assert len(first) == 3 and len(last) == 2
+
+
+def test_label_slice_is_traced():
+    """df["2019-05-20":"2019-05-21"] is not a positional slice."""
+    idx = pd.date_range("2019-05-19", periods=6, freq="D")
+    df = pd.DataFrame({"v": np.arange(6.0)}, index=idx)
+    with blame.trace() as h:
+        window = df["2019-05-20":"2019-05-21"]
+    assert len(window) == 2
+    assert not h.run.warnings, h.run.warnings
+    step = [s for s in h.run.steps if not s.minor][-1]
+    assert not step.approximate
+    assert np.array_equal(h.run.why(row=0, target=step.output).sources[h.run.sources[0]], [1])
+
+
+def test_plotting_does_not_enter_the_graph():
+    """matplotlib builds frames of its own on the way to a figure. They are
+    not steps in the user's pipeline."""
+    pytest.importorskip("matplotlib")
+    import matplotlib
+    matplotlib.use("Agg")
+
+    df = pd.DataFrame({"v": np.arange(10.0), "w": np.arange(10.0) * 2})
+    with blame.trace() as h:
+        kept = df[df.v > 2]
+        kept.plot()
+        kept.info()
+
+    ops = [s.op for s in h.run.steps if not s.minor]
+    assert ops == ["filter"], ops
+    assert not any("untraced" in o for o in ops)
+
+
+def test_why_can_be_asked_about_the_frame_itself():
+    """Naming the frame beats guessing which leaf of the graph you meant."""
+    orders = _orders()
+    with blame.trace() as h:
+        kept = orders[orders.qty > 0]
+        report = kept.groupby("cust", as_index=False)["qty"].sum()
+
+    run = h.run
+    by_object = run.why(row=0, target=report)
+    by_default = run.why(row=0)
+    assert by_object.target_fid == by_default.target_fid
+    assert run.why(row=0, target=kept).target_fid != by_object.target_fid
+    assert f"{len(report)}x" in repr(by_object)      # the shape is stated
+
+
+def test_asking_about_an_untraced_frame_says_so_instead_of_guessing():
+    orders = _orders()
+    with blame.trace() as h:
+        orders[orders.qty > 0]
+    outsider = pd.DataFrame({"a": [1, 2, 3]})
+    with pytest.raises(KeyError, match="not in this run"):
+        h.run.why(row=0, target=outsider)
