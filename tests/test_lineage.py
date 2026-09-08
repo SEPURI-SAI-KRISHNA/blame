@@ -749,3 +749,136 @@ def test_untraced_chain_survives_collected_intermediates():
     exp = h.run.why(row=0, target=out)
     assert exp.approximate is True
     assert {h.run.nodes[f].label for f in exp.sources} == {"df"}
+
+
+# -- diffing two runs ------------------------------------------------------
+
+def _sales(orders, customers):
+    with blame.trace() as h:
+        clean = orders[orders.qty > 0]
+        clean = clean.assign(total=clean.qty * clean.price)
+        joined = clean.merge(customers, on="cust")
+        joined.groupby("region", as_index=False)["total"].sum()
+    return h.run
+
+
+def _books(qty3=4, extra=None, regions=None):
+    orders = pd.DataFrame({"order_id": [1, 2, 3, 4],
+                           "cust": [10, 11, 12, 10],
+                           "qty": [2, 1, qty3, 5],
+                           "price": [10.0, 25.0, 8.0, 4.0]})
+    if extra is not None:
+        orders = pd.concat([orders, extra], ignore_index=True)
+    customers = pd.DataFrame({"cust": [10, 11, 12],
+                              "region": regions or ["north", "south", "north"]})
+    return orders, customers
+
+
+def test_diff_attributes_a_changed_number_to_the_input_row_that_changed():
+    before = _sales(*_books(qty3=4))
+    after = _sales(*_books(qty3=9))
+    d = before.diff(after, on=["region", "order_id"])
+
+    assert d, "the totals moved, so the diff must not be empty"
+    north = [c for c in d.changes if c.key == "north"]
+    assert len(north) == 1 and north[0].kind == "changed"
+    assert [c.column for c in north[0].cells] == ["total"]
+
+    causes = north[0].causes
+    assert [(c.source, c.key) for c in causes] == [("orders", 3)]
+    assert [str(c) for c in causes[0].cells] == ["qty: 4.0 -> 9.0"]
+    assert d.explained == len(d.changes)
+
+
+def test_diff_reports_added_and_removed_input_rows():
+    extra = pd.DataFrame({"order_id": [9], "cust": [11], "qty": [3], "price": [10.0]})
+    before = _sales(*_books())
+    after = _sales(*_books(extra=extra))
+    d = before.diff(after, on=["region", "order_id"])
+
+    south = [c for c in d.changes if c.key == "south"][0]
+    assert [(c.source, c.key, c.kind) for c in south.causes] == [("orders", 9, "added")]
+
+    # and the other direction: the row is gone in the second run
+    back = after.diff(before, on=["region", "order_id"])
+    south_back = [c for c in back.changes if c.key == "south"][0]
+    assert [(c.key, c.kind) for c in south_back.causes] == [(9, "removed")]
+
+
+def test_diff_of_identical_runs_is_empty():
+    d = _sales(*_books()).diff(_sales(*_books()), on=["region", "order_id"])
+    assert not d
+    assert d.changes == []
+    assert "no differences" in repr(d)
+
+
+def test_diff_says_so_when_no_input_change_explains_the_output():
+    """The data is identical and the numbers still moved, so the pipeline
+    itself changed. Inventing a cause would be worse than admitting none."""
+    orders, customers = _books()
+    before = _sales(orders, customers)
+    with blame.trace() as h:                       # same inputs, different filter
+        clean = orders[orders.qty > 1]
+        clean = clean.assign(total=clean.qty * clean.price)
+        joined = clean.merge(customers, on="cust")
+        joined.groupby("region", as_index=False)["total"].sum()
+    after = h.run
+
+    d = before.diff(after, on=["region", "order_id"])
+    assert d.changes
+    assert d.explained == 0
+    assert "no changed input row explains this" in repr(d)
+
+
+def test_diff_falls_back_per_frame_when_a_key_is_not_unique():
+    before = _sales(*_books(qty3=4))
+    after = _sales(*_books(qty3=9))
+    d = before.diff(after, on=["region", "order_id"])
+    assert "region" in d.aligned_by
+    # customers has a region column too, but it repeats there
+    assert "not being unique" in d.source_summary["customers"]
+
+
+def test_diff_detects_added_and_removed_columns():
+    orders, customers = _books()
+    before = _sales(orders, customers)
+    with blame.trace() as h:
+        clean = orders[orders.qty > 0]
+        clean = clean.assign(total=clean.qty * clean.price)
+        joined = clean.merge(customers, on="cust")
+        out = joined.groupby("region", as_index=False)[["total", "qty"]].sum()
+    d = before.diff(h.run, on=["region", "order_id"])
+    assert d.gained_columns == ["qty"]
+    assert len(out.columns) == 3
+
+
+def test_unexplained_rows_is_the_assertion_for_a_test_suite():
+    orders, customers = _books()
+    before = _sales(orders, customers)
+    after = _sales(orders, customers)
+    assert before.diff(after, on=["region", "order_id"]).unexplained_rows() == []
+
+    with blame.trace() as h:                        # same data, changed pipeline
+        clean = orders[orders.qty > 1]
+        clean = clean.assign(total=clean.qty * clean.price)
+        joined = clean.merge(customers, on="cust")
+        joined.groupby("region", as_index=False)["total"].sum()
+    assert before.diff(h.run, on=["region", "order_id"]).unexplained_rows()
+
+
+def test_diff_compares_by_value_not_by_row_position():
+    """Inserting a row at the top must not report every row below it as
+    changed -- position is not identity across runs."""
+    orders, customers = _books()
+    before = _sales(orders, customers)
+    shifted = pd.concat([
+        pd.DataFrame({"order_id": [0], "cust": [13], "qty": [1], "price": [1.0]}),
+        orders], ignore_index=True)
+    customers2 = pd.concat([customers,
+                            pd.DataFrame({"cust": [13], "region": ["west"]})],
+                           ignore_index=True)
+    after = _sales(shifted, customers2)
+
+    d = before.diff(after, on=["region", "order_id"])
+    # north and south are untouched; only the new west region appears
+    assert [(c.key, c.kind) for c in d.changes] == [("west", "added")]
