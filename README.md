@@ -25,13 +25,13 @@ print(run.why(row=1, col="total"))
 The `south` row of the report says `50.0` and should say `25.0`:
 
 ```
-why(groupby.sum [f8], row [1], column 'total')
+why(groupby.sum [f5] 3x2, row [1], column 'total')
 
   derivation:
-    step   6 groupby.sum('region') [demo.py:9] <- f7:2 rows
-    step   5 merge(on='customer_id') [demo.py:8] <- f6:1 row, f1:2 rows
-    step   4 assign(total=<frame>) [demo.py:7] <- f3:1 row
-    step   1 filter(<frame>) [demo.py:6] <- f0:1 row
+    step   3 groupby.sum('region') [demo.py:9] <- f4:2 rows
+    step   2 merge(on='customer_id') [demo.py:8] <- f3:1 row, f1:2 rows
+    step   1 assign(total=<frame>) [demo.py:7] <- f2:1 row
+    step   0 filter(<frame>) [demo.py:6] <- f0:1 row
 
   source rows:
     read_csv('customers.csv') [f1]: 2 row(s) -> [1, 4]
@@ -93,20 +93,29 @@ idiomatic pandas written by the pandas maintainers, not by me — run under
 | scripts that raised under tracing | **0 of 8** |
 | scripts whose results changed | **0 of 8** |
 | pandas calls made | 110 |
-| calls `blame` has a handler for | 96 (87%) |
-| traced steps | 135 |
-| steps that were approximate | **6 (4%)** |
+| calls `blame` has a handler for | 104 (95%) |
+| traced steps | 83 |
+| steps that were approximate | **0** |
 
-All six sit in one script, the reshaping tutorial, and all six are `pivot`,
-`melt`, `unstack` and `transpose` — the known gap, and the next thing to build.
-The other unhandled calls (`idxmax`, `isin`, `notna`, `unique`, `info`) do not
-return frames, so they have no row lineage to record.
+The six unhandled calls are `idxmax`, `isin`, `notna`, `unique` and `info` —
+none of which return a frame, so none of them have row lineage to record. All
+three pandas versions produce an identical 83-step graph.
 
-This is what running it on code I hadn't written was for. It found four real
-bugs — `resample` producing confidently wrong lineage, duplicate-index frames
-silently degrading `head` and `sort_values`, matplotlib internals appearing as
-pipeline steps, and label slices failing outright. All four are fixed and
-covered by tests.
+This is what running it on code I hadn't written was for. Nothing else found
+these:
+
+- `resample` was untraced and its result never entered the graph, so `why()`
+  answered confidently about an unrelated frame.
+- A duplicated index silently degraded `head`, `tail` and `sort_values` — and a
+  duplicated index is what you get from `concat`, from `melt`, or from reading
+  any file keyed on a non-unique column.
+- Reshape keys were read as a `Series`, which pandas aligns on *its* index, so
+  every `pivot` on a frame that was not `RangeIndex`ed was quietly wrong. The
+  tests missed it because they all used default indexes.
+- pandas implements `explode` with `reindex`, `stack` with `take`, and plotting
+  with half a dozen more. Those internal calls were recorded as user steps: one
+  `explode` produced seven, two of them carrying approximate warnings about
+  operations that appear nowhere in the user's code.
 
 ## What it costs
 
@@ -115,20 +124,25 @@ filter, assign, dropna, merge, sort, drop_duplicates, two-key group-by:
 
 | input rows | untraced | traced | overhead | trace on disk | `why()` |
 |---|---|---|---|---|---|
-| 10,000 | 0.005s | 0.026s | 4.9x | 0.9 MB | 2 ms |
-| 100,000 | 0.023s | 0.059s | 2.6x | 8.9 MB | 3 ms |
-| 1,000,000 | 0.228s | 0.467s | 2.1x | 88 MB | 11 ms |
+| 10,000 | 0.006s | 0.019s | 3.4x | 0.8 MB | 2 ms |
+| 100,000 | 0.024s | 0.052s | 2.2x | 7.7 MB | 3 ms |
+| 1,000,000 | 0.206s | 0.411s | **2.0x** | 77 MB | 11 ms |
 
 Most of that is a fixed price paid once for writing your input frames, not a
 per-step tax. Chaining more operations over the same million rows costs about
-**18 ms per step** and the ratio stays flat (`python bench/scaling.py`):
+**5 ms per step** and the ratio stays flat (`python bench/scaling.py`):
 
 | steps | untraced | traced | overhead |
 |---|---|---|---|
-| 4 | 0.108s | 0.303s | 2.8x |
-| 8 | 0.145s | 0.446s | 3.1x |
-| 16 | 0.233s | 0.725s | 3.1x |
-| 32 | 0.456s | 1.346s | 3.0x |
+| 4 | 0.101s | 0.237s | 2.3x |
+| 8 | 0.137s | 0.325s | 2.4x |
+| 16 | 0.211s | 0.488s | 2.3x |
+| 32 | 0.413s | 0.861s | 2.1x |
+
+`blame` records only what your code invoked. pandas implements many of its own
+methods with the ones we patch, and those internal calls used to be recorded
+too — the seven-operation pipeline above was showing ten steps, and paying for
+all ten.
 
 A frame whose index has duplicates cannot identify its own rows, so `blame`
 replays that one step with hidden position columns to recover them exactly
@@ -162,22 +176,23 @@ values are genuinely new (`assign`, aggregations).
 ## Honesty about accuracy
 
 Lineage is **exact** for filters, slices (positional and label), sorts, joins,
-group-bys, `resample`, concats, column projections and the row-preserving
-transforms (`assign`, `rename`, `astype`, `fillna`, ...) — including on frames
-whose index has duplicates.
+group-bys, `resample`, concats, the reshapes (`pivot`, `pivot_table`, `melt`,
+`unstack`), column projections and the row-preserving transforms (`assign`,
+`rename`, `astype`, `fillna`, ...) — including on frames whose index has
+duplicates.
 
 It is **approximate** in two situations, and says so in both:
 
 *An opaque user function* — `apply`, `map`, `transform` with a lambda. `blame`
 assumes row identity and marks the step `~`.
 
-*An operation `blame` does not cover* — `pivot`, `pivot_table`, `unstack`,
-`melt`, `transpose`. pandas tells us it derived one frame from another, so rather than
+*An operation `blame` does not cover* — `transpose`, `stack`, `explode`,
+`wide_to_long`. pandas tells us it derived one frame from another, so rather than
 letting the intermediate pose as a pipeline input, `blame` inserts an explicit
 step and widens the answer to every candidate row:
 
 ```
-    step   5 <untraced unstack>() [pipeline.py:7] <- f5:4 rows  ~approximate
+    step   2 <untraced explode>() [pipeline.py:8] <- f1:4 rows  ~approximate
 ```
 
 Either way `run.table()` shows a `~`, `why()` prints a warning banner, and
@@ -194,7 +209,7 @@ python examples/pipeline.py      # a pipeline with a planted double-counting bug
 blame steps                      # what it did
 blame why 1 --col total --show 5 # why the "south" total is wrong
 blame ui                         # the same answer, by clicking
-pytest -q                        # 37 tests, ground-truth checked
+pytest -q                        # 48 tests, ground-truth checked
 ```
 
 Tested against pandas 2.0.3, 2.2.3 and 3.0.5, on Python 3.11 and 3.12.
