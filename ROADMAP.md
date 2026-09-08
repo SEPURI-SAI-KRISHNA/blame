@@ -25,7 +25,8 @@ Project C (the provenance-native query engine) what to build. See
       reporting every source row that fed the output row
 - [ ] `how(cell)` — the derivation expression, not just the input rows
 - [ ] A terminal UI to scrub steps, with shapes, schemas and null counts
-- [ ] `pivot_table`, `melt`, `stack`/`unstack`, window functions
+- [ ] `pivot`, `pivot_table`, `melt`, `stack`/`unstack`, `transpose` — the
+      entire remaining approximate surface in the validation above
 - [ ] Series-level operations as first-class steps
 
 ## v0.3 — the web UI (done)
@@ -48,7 +49,28 @@ Project C (the provenance-native query engine) what to build. See
 - Frames are materialized in full on the server to serve one page of rows.
   Fine at a few million; a lazy per-page read is the fix when it isn't.
 
-## v0.4 — run diff
+## v0.4 — validated against code we did not write (done)
+
+Ran the eight data-handling tutorials from the pandas docs — the maintainers'
+own idiomatic pandas — on pandas 2.0.3, 2.2.3 and 3.0.5. None raised, none
+changed results, 135 steps traced, 6 approximate. It found four real bugs:
+
+- [x] `resample(...).agg()` was untraced, and the result frame never entered
+      the graph at all -- so `why()` silently answered about a different frame.
+      Now traced exactly through the time bins, ground-truth tested.
+- [x] A duplicate index made `head`, `tail`, `sort_values`, `sort_index` and
+      `reindex` degrade to approximate without saying so. `head`/`tail` are
+      positional and never needed the index; the rest recover exact positions
+      by replaying the step with hidden position columns.
+- [x] matplotlib's internal frames appeared as steps in the user's pipeline.
+      Plotting and display entry points now run with tracing suppressed.
+- [x] A label slice (`df["2019-05-20":"2019-05-21"]`) raised inside the tracer
+      and was recorded as nothing at all.
+- [x] `why(target=df)` accepts the frame object, instead of guessing which
+      leaf of the graph you meant; asking about an untraced frame now raises
+      a clear error rather than answering about an unrelated one.
+
+## v0.5 — run diff
 
 - [ ] `blame diff run1 run2`: row-level differences with lineage-explained
       causes ("row 812 changed because input row 91 changed `price`")
@@ -65,14 +87,15 @@ Project C (the provenance-native query engine) what to build. See
 - [ ] Spark via listener plus sampled lineage
 - [ ] Replace the tracer with the Project C engine for full-fidelity mode
 
-## Known limits in v0.1
+## Known limits
 
 - `apply`/`map`/`transform` assume row identity and are flagged approximate.
-- Reshaping operations (`pivot_table`, `unstack`, `melt`, transpose) are not
-  traced row by row. They are detected and reported as approximate steps, so
+- Reshaping operations (`pivot`, `pivot_table`, `unstack`, `melt`, transpose)
+  are not traced row by row. They are detected and reported as approximate steps, so
   answers through them widen to every candidate row rather than being wrong.
-- A parent frame whose index has duplicates and which was not produced by a
-  traced operation falls back to approximate lineage.
+- A parent frame whose index has duplicates falls back to approximate lineage
+  only when the operation cannot safely be replayed with position tags —
+  `drop_duplicates()` with no subset, `dropna(how="all")`, `sample()`.
 - Column provenance is by name; a renamed or computed column is marked derived
   rather than traced to the expression that made it.
 - In-place mutation (`df["x"] = ...`) is not recorded as a step, but row
@@ -80,5 +103,6 @@ Project C (the provenance-native query engine) what to build. See
   changes values in place is not detected at all.
 - The DAG is laid out by longest-path depth with no edge routing, so a long
   edge that skips layers passes behind the boxes between them.
-- Tested against pandas 3.0.5 only. pandas 2.x is untested and monkeypatching
-  is version-sensitive; this is the biggest portability risk in the project.
+- Tested against pandas 2.0.3, 2.2.3 and 3.0.5 (Python 3.11 and 3.12); the
+  suite and the third-party validation pass identically on all three. Older
+  than 2.0 is untested and unsupported.
