@@ -14,6 +14,7 @@ from __future__ import annotations
 import functools
 import inspect
 import os
+import sys
 import time
 import uuid
 import warnings
@@ -113,13 +114,32 @@ class Tracer:
 
     def note_derived(self, new, other, method) -> None:
         """pandas telling us one frame came from another, during an operation
-        we do not trace. Enough to know the chain is broken and where."""
+        we do not trace.
+
+        The origin is resolved now, not later: pandas discards the frames it
+        builds on the way through an operation the moment it is done with them,
+        so a chain of weak references to those intermediates is already broken
+        by the time anyone asks. Each link instead carries the fid it descends
+        from, so the chain collapses as it is built.
+        """
+        name = str(method or "?")
+        fid = self._live_fid(other)
+        if fid is not None:
+            methods = [name]
+        else:
+            prior = self._derived.get(id(other))
+            if prior is None:
+                return                       # nothing upstream that we know about
+            fid, earlier = prior[0], prior[1]
+            methods = earlier if earlier and earlier[-1] == name else earlier + [name]
+            if len(methods) > 8:             # a long internal chain tells us nothing
+                methods = methods[:8]
         key = id(new)
         try:
             keeper = weakref.ref(new, lambda _r, k=key: self._derived.pop(k, None))
-            self._derived[key] = (weakref.ref(other), str(method or "?"), keeper)
         except TypeError:
-            pass
+            return
+        self._derived[key] = (fid, methods, keeper)
 
     def _live_fid(self, obj) -> str | None:
         fid = self._obj_to_fid.get(id(obj))
@@ -129,32 +149,22 @@ class Tracer:
         return fid if ref is None or ref() is not None else None
 
     def _untraced_origin(self, obj):
-        """Walk the derivation chain until it reaches a frame we know about."""
-        methods: list[str] = []
-        current = obj
-        for _ in range(64):
-            entry = self._derived.get(id(current))
-            if entry is None:
-                return None
-            parent_ref, method, _keeper = entry
-            parent = parent_ref()
-            if parent is None:
-                return None
-            methods.append(method)
-            if self._live_fid(parent) is not None:
-                return parent, methods
-            current = parent
-        return None
+        """The registered frame this one descends from, and how it got here."""
+        entry = self._derived.get(id(obj))
+        if entry is None:
+            return None
+        fid, methods, _keeper = entry
+        return (fid, methods) if fid in self.nodes else None
 
-    def _record_untraced(self, obj, ancestor, methods: list[str]) -> str:
+    def _record_untraced(self, obj, ancestor_fid: str, methods: list[str]) -> str:
         """Insert an explicit approximate hop rather than letting an
         intermediate frame masquerade as a source."""
-        name = methods[0] if methods else "?"
+        name = methods[-1] if methods else "?"
         self.warn(f"{name}: not traced, so lineage through it is approximate "
                   f"(every row of the input is reported as a candidate)")
-        self.record(f"<untraced {name}>", [ancestor], obj,
-                    lin.Unknown(len(obj), len(ancestor)),
-                    " -> ".join(reversed(methods)) if len(methods) > 1 else "")
+        self.record(f"<untraced {name}>", [ancestor_fid], obj,
+                    lin.Unknown(len(obj), self.nodes[ancestor_fid].data.nrows),
+                    " -> ".join(methods) if len(methods) > 1 else "")
         return self._obj_to_fid[id(obj)]
 
     def register(self, obj, label: str, step: int | None, plan: dict | None = None) -> str:
@@ -182,12 +192,14 @@ class Tracer:
         return fid
 
     def fid_of(self, obj, label: str | None = None) -> str:
-        """Find the node for an object.
+        """Find the node for an object, or for a fid passed straight through.
 
         An unknown frame is a source only if nothing we know about produced it.
         If pandas derived it from a traced frame through an operation we do not
         cover, say so instead of presenting it as an input to the pipeline.
         """
+        if isinstance(obj, str):
+            return obj                       # already resolved by the caller
         fid = self._live_fid(obj)
         if fid is not None:
             return fid
@@ -447,7 +459,7 @@ def _simple(handler):
     def factory(orig, name):
         def wrapper(self, *args, **kwargs):
             t = _ACTIVE
-            if t is None or t._depth > 0:
+            if t is None or t._depth > 0 or not _user_call():
                 return orig(self, *args, **kwargs)
             # the guard is held across lineage derivation too: deriving
             # lineage uses pandas, and none of that may become a step itself
@@ -469,6 +481,22 @@ def _simple(handler):
         return wrapper
 
     return factory
+
+
+def _user_call() -> bool:
+    """Did the user's own code invoke this, or did pandas invoke it internally?
+
+    pandas implements many of its methods with the ones we patch: explode goes
+    through reindex, stack through take. Those are not steps the user wrote,
+    and recording them fabricates a pipeline that never existed. One frame
+    lookup, far cheaper than the capture it guards.
+    """
+    try:
+        caller = sys._getframe(2)      # 0 this, 1 the wrapper, 2 whoever called it
+    except ValueError:
+        return True
+    name = caller.f_code.co_filename
+    return "pandas" not in name and not name.startswith(_PKG_DIR)
 
 
 def _traceable(obj) -> bool:
@@ -531,6 +559,95 @@ def _h_identity(t, name, parent, out, args, kwargs, elapsed, orig=None):
              _column_map(parent, out), elapsed)
 
 
+def _membership(keys, out_index, n_in, all_rows_key=None) -> "lin.Group | None":
+    """CSR group membership: which parent rows land in each output row.
+
+    Every reshape that widens a table -- pivot, pivot_table, unstack -- moves
+    values into columns and leaves one output row per distinct index key. So
+    the row-level answer is the same shape as a group-by: output row i was made
+    from every parent row carrying that key.
+    """
+    import pandas as pd
+
+    # the grouper must be positional. A Series grouper is aligned on its own
+    # index, which is silently wrong whenever the frame is not RangeIndexed.
+    positions = pd.Series(np.arange(n_in, dtype=np.int64))
+    groups = positions.groupby(keys, sort=False, dropna=False).indices
+
+    every = np.arange(n_in, dtype=np.int64)
+    offsets = np.zeros(len(out_index) + 1, dtype=np.int64)
+    chunks = []
+    for i, key in enumerate(out_index):
+        if all_rows_key is not None and key == all_rows_key:
+            found = every                     # a margins total spans everything
+        else:
+            found = groups.get(key)
+            if found is None and isinstance(key, tuple) and len(key) == 1:
+                found = groups.get(key[0])
+        found = np.asarray([] if found is None else found, dtype=np.int64)
+        chunks.append(found)
+        offsets[i + 1] = offsets[i] + len(found)
+    if not any(len(c) for c in chunks):
+        return None                       # nothing matched: we read the keys wrong
+    indices = np.concatenate(chunks) if chunks else np.empty(0, dtype=np.int64)
+    return lin.Group(offsets, indices, n_in)
+
+
+def _reshape_keys(parent, kwargs, args):
+    """The per-parent-row key that decides which output row it feeds."""
+    index = kwargs.get("index")
+    if index is None and args:
+        index = args[0]
+    if index is None:              # omitted: pivot uses the frame's own index
+        return parent.index.to_numpy()
+    names = [index] if isinstance(index, str) else list(index)
+    if not all(n in getattr(parent, "columns", []) for n in names):
+        return None
+    values = [parent[n].to_numpy() for n in names]
+    return values if len(values) > 1 else values[0]
+
+
+def _h_reshape(t, name, parent, out, args, kwargs, elapsed, orig=None):
+    """pivot, pivot_table, unstack: one output row per distinct index key."""
+    if not _traceable(out) or not _traceable(parent):
+        return
+    lineage = None
+    try:
+        if name == "unstack":
+            level = kwargs.get("level", args[0] if args else -1)
+            idx = parent.index
+            keys = idx.droplevel(level).to_numpy() if getattr(idx, "nlevels", 1) > 1 else None
+        else:
+            keys = _reshape_keys(parent, kwargs, args)
+        if keys is not None:
+            margin = kwargs.get("margins_name", "All") if kwargs.get("margins") else None
+            lineage = _membership(keys, out.index, len(parent), margin)
+    except Exception:
+        lineage = None
+
+    if lineage is None:
+        t.warn(f"{name}: could not read the reshape keys; "
+               f"lineage is approximate (every input row is a candidate)")
+        lineage = lin.Unknown(len(out), len(parent))
+    t.record(name, [parent], out, lineage, _detail(args, kwargs), {}, elapsed)
+
+
+def _h_melt(t, name, parent, out, args, kwargs, elapsed, orig=None):
+    """melt stacks the value columns one after another, so output row i came
+    from input row i % len(parent)."""
+    if not _traceable(out) or not _traceable(parent):
+        return
+    n = len(parent)
+    if n and len(out) % n == 0:
+        take = np.tile(np.arange(n, dtype=np.int64), len(out) // n)
+        lineage = lin.Select(take)
+    else:
+        t.warn(f"{name}: output is not a whole multiple of the input; "
+               f"lineage is approximate")
+        lineage = lin.Unknown(len(out), n)
+    t.record(name, [parent], out, lineage, _detail(args, kwargs), {}, elapsed)
+
+
 def _h_apply(t, name, parent, out, args, kwargs, elapsed, orig=None):
     if not _traceable(out) or not _traceable(parent):
         return
@@ -548,7 +665,7 @@ def _merge_factory(orig, name):
 
     def wrapper(left, right=None, *args, **kwargs):
         t = _ACTIVE
-        if t is None or t._depth > 0 or right is None:
+        if t is None or t._depth > 0 or not _user_call() or right is None:
             return orig(left, right, *args, **kwargs) if right is not None else orig(left, **kwargs)
         import pandas as pd
 
@@ -604,7 +721,7 @@ def _merge_factory(orig, name):
 def _concat_factory(orig, name):
     def wrapper(objs, *args, **kwargs):
         t = _ACTIVE
-        if t is None or t._depth > 0:
+        if t is None or t._depth > 0 or not _user_call():
             return orig(objs, *args, **kwargs)
         import pandas as pd
 
@@ -714,7 +831,7 @@ def _group_keys(gb, out) -> list:
 def _agg_factory(orig, name):
     def wrapper(self, *args, **kwargs):
         t = _ACTIVE
-        if t is None or t._depth > 0:
+        if t is None or t._depth > 0 or not _user_call():
             return orig(self, *args, **kwargs)
         # held across the whole body: reading the group keys back off the
         # result is a column access, and must not be recorded as a step
@@ -825,6 +942,7 @@ _AGG_OPS = ["agg", "aggregate", "sum", "mean", "count", "size", "min", "max", "m
 _READERS = ["read_csv", "read_parquet", "read_json", "read_excel", "read_feather"]
 # not data operations: whatever frames they build inside are not pipeline steps
 _OPAQUE_OPS = ["hist", "boxplot", "info", "to_string", "_repr_html_", "__repr__"]
+_RESHAPE_OPS = ["pivot", "pivot_table", "unstack"]
 
 
 def install() -> None:
@@ -845,6 +963,9 @@ def install() -> None:
         _install(cls, "join", _merge_factory)
         _install(cls, "groupby", _groupby_factory)
         _install(cls, "resample", _groupby_factory)
+        for op in _RESHAPE_OPS:
+            _install(cls, op, _simple(_h_reshape))
+        _install(cls, "melt", _simple(_h_melt))
         for op in _OPAQUE_OPS:
             _install(cls, op, _guard_factory)
 
@@ -852,6 +973,9 @@ def install() -> None:
         _install(cls, "__finalize__", _finalize_factory)
     _install(pd, "merge", _merge_factory)
     _install(pd, "concat", _concat_factory)
+    _install(pd, "melt", _simple(_h_melt))
+    _install(pd, "pivot", _simple(_h_reshape))
+    _install(pd, "pivot_table", _simple(_h_reshape))
     _install(DataFrameGroupBy, "__getitem__", _gb_getitem_factory)
     for op in _AGG_OPS:
         _install(DataFrameGroupBy, op, _agg_factory)
