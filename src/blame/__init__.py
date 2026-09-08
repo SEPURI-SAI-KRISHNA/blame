@@ -19,10 +19,12 @@ from pathlib import Path
 
 from . import _tracer
 from ._store import Store
+from .diff import Diff
 from .query import Explanation, Run
 
 __version__ = "0.1.0"
-__all__ = ["trace", "start", "stop", "last_run", "load", "why", "forward", "Run", "Explanation"]
+__all__ = ["trace", "start", "stop", "last_run", "load", "why", "forward", "diff",
+           "Run", "Explanation", "Diff"]
 
 _LAST: Run | None = None
 
@@ -76,3 +78,12 @@ def why(row: int | list[int], col: str | None = None, target=None) -> Explanatio
 
 def forward(row: int | list[int], target=None) -> dict:
     return last_run().forward(row=row, target=target)
+
+
+def diff(left, right, target=None, on=None, rtol: float = 0.0) -> Diff:
+    """Compare two runs. Either argument may be a run id."""
+    if isinstance(left, str):
+        left = Run.load(left)
+    if isinstance(right, str):
+        right = Run.load(right)
+    return left.diff(right, target=target, on=on, rtol=rtol)

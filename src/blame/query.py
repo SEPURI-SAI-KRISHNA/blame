@@ -308,6 +308,14 @@ class Run:
 
         return {f: np.sort(r) for f, r in marks.items() if len(r)}
 
+    def diff(self, other: "Run", target=None, on=None, rtol: float = 0.0,
+             explain: int = 50):
+        """What changed going from this run to `other`, and which input rows
+        did it. Pass `on` to pair rows by a key column instead of the index."""
+        from .diff import diff as _diff
+
+        return _diff(self, other, target=target, on=on, rtol=rtol, explain=explain)
+
     def ui(self, port: int = 7654, open_browser: bool = True) -> None:
         """Serve this run on a local page and open it in a browser."""
         from .ui import serve

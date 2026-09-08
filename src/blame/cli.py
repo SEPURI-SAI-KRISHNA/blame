@@ -76,6 +76,21 @@ def _cmd_at(args) -> int:
     return 0
 
 
+def _cmd_diff(args) -> int:
+    store = Store(args.root)
+    runs = store.list_runs()
+    if len(runs) < 2 and not (args.a and args.b):
+        print("blame: need two recorded runs to diff", file=sys.stderr)
+        return 1
+    if not (args.a and args.b):
+        newest = sorted(runs, key=lambda r: store.get_manifest(r).get("created", 0))
+        args.a, args.b = newest[-2], newest[-1]
+    left = Run(store.get_manifest(args.a), store)
+    right = Run(store.get_manifest(args.b), store)
+    print(left.diff(right, target=args.target, on=args.on, rtol=args.rtol))
+    return 0
+
+
 def _cmd_ui(args) -> int:
     from .ui import serve
 
@@ -106,6 +121,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("row", type=int)
     p.add_argument("--target", default=None)
     p.set_defaults(fn=_cmd_forward)
+
+    p = sub.add_parser("diff", help="compare two runs and explain the differences")
+    p.add_argument("a", nargs="?", default=None, help="older run id (default: second newest)")
+    p.add_argument("b", nargs="?", default=None, help="newer run id (default: newest)")
+    p.add_argument("--target", default=None, help="frame id, label or step index")
+    p.add_argument("--on", action="append", default=None, metavar="COL",
+                   help="column to pair rows by; repeatable, applied to each "
+                        "frame that has it (e.g. --on region --on order_id)")
+    p.add_argument("--rtol", type=float, default=0.0, help="relative float tolerance")
+    p.set_defaults(fn=_cmd_diff)
 
     p = sub.add_parser("ui", help="open the run in a browser")
     p.add_argument("--port", type=int, default=7654)
