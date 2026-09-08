@@ -86,11 +86,25 @@ changed results, 135 steps traced, 6 approximate. It found four real bugs:
       intermediates immediately, so walking a chain of weak references to them
       afterwards found nothing and let an intermediate pose as a source.
 
-## v0.6 — run diff
+## v0.6 — run diff (done)
 
-- [ ] `blame diff run1 run2`: row-level differences with lineage-explained
-      causes ("row 812 changed because input row 91 changed `price`")
-- [ ] pytest integration: assert no unexplained diffs between runs
+- [x] `blame diff run1 run2` / `before.diff(after)`: row-level differences with
+      lineage-explained causes ("north fell to 40 because order 3 was cancelled")
+- [x] Rows paired by value, not position. `--on` takes candidate key columns and
+      applies them per frame, falling back where a key is not unique and saying
+      which identity each frame actually used.
+- [x] `Diff.unexplained_rows()` — the assertion for a test suite. A difference
+      no changed input accounts for means the pipeline changed, not the data.
+- [x] Comparison is vectorized, so the cost tracks the size of the difference
+      rather than the size of the data: 3.5 s over a million input rows, down
+      from 80 s row by row (`bench/diffing.py`).
+
+## v0.7 — next
+
+- [ ] Column-level `why`, so a cell narrows to the columns that fed it rather
+      than reporting every source row of its output row
+- [ ] `how(cell)` — the derivation expression, not just the input rows
+- [ ] `blame diff` in the web UI, with changed rows highlighted in place
 
 ## v1 — mixed pipelines
 

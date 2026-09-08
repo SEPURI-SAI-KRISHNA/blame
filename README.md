@@ -76,11 +76,55 @@ uv venv && uv pip install -e ".[dev]"
 | What did the pipeline actually do? | `run.table()` |
 | What did the data look like at step 12? | `run.at(12)` |
 | ...about this exact frame, not one I named | `run.why(row=2, target=report)` |
+| Why did yesterday's number change? | `before.diff(after, on="order_id")` |
 | All of the above, by clicking | `run.ui()` or `blame ui` |
 
 Nothing in your pipeline changes. `blame` wraps pandas while the trace is
 active and restores it afterwards; your code returns exactly the objects it
 returned before.
+
+## When yesterday's numbers don't match today's
+
+```bash
+blame diff --on region --on order_id
+```
+
+```
+diff 42552a4ab2e2 -> 1f92a9b30fc6
+  groupby.sum: 3x2 -> 3x2   (rows paired by column 'region')
+  2 changed
+
+  ~ row 'north'  total: 72.0 -> 40.0
+      caused by orders row 3: qty: 4.0 -> 0.0
+  ~ row 'south'  total: 25.0 -> 70.0
+      caused by orders row 2: price: 25.0 -> 40.0
+      caused by orders row 6: added
+
+  2 of 2 differing rows traced to a changed input row
+    orders: 5 -> 6 rows, 1 added, 2 changed  (by column 'order_id')
+    customers: 4 rows, unchanged
+```
+
+A plain table compare tells you `north` went from 72 to 40. `blame` tells you
+order 3 was cancelled. The difference is the lineage: for every output row that
+moved, it walks back to the input rows that produced it and keeps the ones that
+moved too.
+
+Rows are paired by **value, not position** — insert one row at the top of a
+file and a positional diff calls every row below it changed. Pass `--on` with
+the columns that identify a row; it is applied to each frame that has them, and
+each frame reports which identity it actually used.
+
+When nothing in the inputs accounts for a difference, it says so rather than
+inventing a cause — that is the signature of the pipeline having changed, not
+the data:
+
+```python
+assert not before.diff(after, on="order_id").unexplained_rows()
+```
+
+That line in a test suite is the point of the feature: inputs that did not move
+should not produce outputs that did.
 
 ## Does it work on someone else's code?
 
@@ -151,6 +195,10 @@ instead of 1.7x (at 1M rows: 225 ms against 115 ms). It applies per step, only
 on duplicate-index frames, and only for operations where an extra column cannot
 change what gets selected.
 
+`blame diff` scales with the size of the difference, not the size of the data
+(`python bench/diffing.py`): 42 ms over 10,000 input rows, 316 ms over 100,000,
+3.5 s over 1,000,000 — with 1% of the input rows changed in each case.
+
 Traces are written uncompressed because a local debugging cache is bound by
 write time, not disk: zstd shrinks an int64 column 2.3x but takes 14x longer to
 write it. Pass `compression="zstd"` or `"lz4"` if you would rather have the
@@ -209,7 +257,8 @@ python examples/pipeline.py      # a pipeline with a planted double-counting bug
 blame steps                      # what it did
 blame why 1 --col total --show 5 # why the "south" total is wrong
 blame ui                         # the same answer, by clicking
-pytest -q                        # 48 tests, ground-truth checked
+blame diff                       # what changed between the last two runs
+pytest -q                        # 56 tests, ground-truth checked
 ```
 
 Tested against pandas 2.0.3, 2.2.3 and 3.0.5, on Python 3.11 and 3.12.
@@ -217,5 +266,6 @@ Tested against pandas 2.0.3, 2.2.3 and 3.0.5, on Python 3.11 and 3.12.
 ## Status
 
 v0.1 is the tracer, the store and the query API for pandas, with a CLI; v0.3
-is the page above; both are validated against third-party code as shown. `blame diff run1 run2`, column-level `why`, and polars are
+is the page above; v0.6 is `blame diff`. All are validated against third-party
+code as shown. `blame diff run1 run2`, column-level `why`, and polars are
 next — see `ROADMAP.md`, which also lists what is known not to work.
