@@ -277,8 +277,8 @@ def test_untraced_op_becomes_an_explicit_approximate_step():
     df = pd.DataFrame({"a": list("xxyy"), "b": list("pqpq"), "v": [1, 2, 3, 4]})
     with blame.trace() as h:
         kept = df[df.v > 0]
-        wide = kept.pivot_table(index="a", columns="b", values="v", aggfunc="sum")
-        out = wide.reset_index()
+        flipped = kept.T                      # transpose has no row-level answer
+        out = flipped.reset_index()
     run = h.run
     exp = run.why(row=0)
 
@@ -567,3 +567,185 @@ def test_asking_about_an_untraced_frame_says_so_instead_of_guessing():
     outsider = pd.DataFrame({"a": [1, 2, 3]})
     with pytest.raises(KeyError, match="not in this run"):
         h.run.why(row=0, target=outsider)
+
+
+# -- reshaping -------------------------------------------------------------
+
+def _wide():
+    return pd.DataFrame({
+        "city":  ["ny", "ny", "la", "la", "sf", "sf"],
+        "month": ["jan", "feb", "jan", "feb", "jan", "feb"],
+        "temp":  [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+        "hum":   [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+    })
+
+
+def test_melt_matches_ground_truth():
+    """Carry a source id through as an id_var and check why() against it."""
+    df = _wide().assign(_src=lambda d: np.arange(len(d)))
+    with blame.trace() as h:
+        long = df.melt(id_vars=["city", "month", "_src"], value_vars=["temp", "hum"])
+
+    run, src = h.run, None
+    src = run.sources[0]
+    step = [s for s in run.steps if s.op == "melt"][0]
+    assert not step.approximate
+    assert len(long) == 2 * len(df)
+    for row in range(len(long)):
+        truth = [int(long.iloc[row]["_src"])]
+        got = run.why(row=row, target=step.output).sources[src]
+        assert np.array_equal(got, truth), f"row {row}"
+
+
+def test_pivot_matches_ground_truth():
+    df = _wide()
+    with blame.trace() as h:
+        wide = df.pivot(index="city", columns="month", values="temp")
+
+    run, src = h.run, h.run.sources[0]
+    step = [s for s in run.steps if s.op == "pivot"][0]
+    assert not step.approximate
+    for row, key in enumerate(wide.index):
+        truth = np.flatnonzero((df["city"] == key).to_numpy())
+        got = run.why(row=row, target=step.output).sources[src]
+        assert np.array_equal(got, truth), f"row {row} ({key})"
+
+
+def test_pivot_table_matches_ground_truth():
+    df = _wide()
+    with blame.trace() as h:
+        table = df.pivot_table(index="city", columns="month", values="temp", aggfunc="sum")
+
+    run, src = h.run, h.run.sources[0]
+    step = [s for s in run.steps if s.op == "pivot_table"][0]
+    assert not step.approximate
+    for row, key in enumerate(table.index):
+        truth = np.flatnonzero((df["city"] == key).to_numpy())
+        assert np.array_equal(run.why(row=row, target=step.output).sources[src], truth)
+
+
+def test_unstack_matches_ground_truth():
+    df = _wide()
+    with blame.trace() as h:
+        stacked = df.set_index(["city", "month"])["temp"]
+        wide = stacked.unstack("month")
+
+    run = h.run
+    step = [s for s in run.steps if s.op == "unstack"][0]
+    assert not step.approximate
+    src = run.sources[0]
+    for row, key in enumerate(wide.index):
+        truth = np.flatnonzero((df["city"] == key).to_numpy())
+        assert np.array_equal(run.why(row=row, target=step.output).sources[src], truth), key
+
+
+def test_reshape_survives_keys_it_cannot_read():
+    """pivot_table with no index aggregates everything; there is no per-row
+    key to read, so it must degrade loudly rather than invent one."""
+    df = _wide()
+    with blame.trace() as h:
+        table = df.pivot_table(columns="month", values="temp", aggfunc="sum")
+    step = [s for s in h.run.steps if s.op == "pivot_table"][0]
+    assert step.approximate
+    assert len(table) == 1
+
+
+def test_pivot_without_an_index_argument_uses_the_frames_own_index():
+    df = pd.DataFrame({"city": ["ny", "ny", "la", "la"],
+                       "month": ["jan", "feb", "jan", "feb"],
+                       "temp": [1.0, 2.0, 3.0, 4.0]}).set_index("city")
+    with blame.trace() as h:
+        wide = df.pivot(columns="month", values="temp")
+    run, src = h.run, h.run.sources[0]
+    step = [s for s in run.steps if s.op == "pivot"][0]
+    assert not step.approximate
+    for row, key in enumerate(wide.index):
+        truth = np.flatnonzero(np.asarray(df.index == key))
+        assert np.array_equal(run.why(row=row, target=step.output).sources[src], truth), key
+
+
+def test_reshape_keys_are_positional_not_index_aligned():
+    """A Series grouper is aligned on its own index. Passing one silently
+    mismatched every reshape on a frame that was not RangeIndexed -- which is
+    any frame read with index_col, i.e. most real ones."""
+    n = 60
+    idx = pd.date_range("2024-01-01", periods=n, freq="h")
+    df = pd.DataFrame({"site": np.repeat(list("abcd"), n // 4),
+                       "metric": np.tile(["no2", "pm25"], n // 2),
+                       "value": np.arange(float(n))}, index=idx)
+    assert not isinstance(df.index, pd.RangeIndex)
+
+    with blame.trace() as h:
+        table = df.pivot_table(values="value", index="site", columns="metric", aggfunc="mean")
+
+    run, src = h.run, h.run.sources[0]
+    step = [s for s in run.steps if s.op == "pivot_table"][0]
+    assert not step.approximate
+    for row, key in enumerate(table.index):
+        truth = np.flatnonzero((df["site"] == key).to_numpy())
+        got = run.why(row=row, target=step.output).sources[src]
+        assert np.array_equal(got, truth), f"{key}: {len(got)} vs {len(truth)}"
+
+
+def test_pivot_table_margins_row_spans_every_input_row():
+    df = _wide()
+    with blame.trace() as h:
+        table = df.pivot_table(values="temp", index="city", columns="month",
+                               aggfunc="sum", margins=True)
+    run, src = h.run, h.run.sources[0]
+    step = [s for s in run.steps if s.op == "pivot_table"][0]
+    total_row = list(table.index).index("All")
+    got = run.why(row=total_row, target=step.output).sources[src]
+    assert np.array_equal(got, np.arange(len(df)))
+
+
+def test_multi_key_pivot_table():
+    df = _wide()
+    with blame.trace() as h:
+        table = df.pivot_table(values="temp", index=["city", "month"], aggfunc="sum")
+    run, src = h.run, h.run.sources[0]
+    step = [s for s in run.steps if s.op == "pivot_table"][0]
+    assert not step.approximate
+    for row, key in enumerate(table.index):
+        city, month = key
+        truth = np.flatnonzero(((df["city"] == city) & (df["month"] == month)).to_numpy())
+        assert np.array_equal(run.why(row=row, target=step.output).sources[src], truth), key
+
+
+def test_pandas_internals_do_not_become_user_steps():
+    """explode is implemented with reindex and take, which we patch. Recording
+    those invents a pipeline the user never wrote -- and the seven fabricated
+    steps it produced included approximate warnings about operations that
+    appear nowhere in their code."""
+    df = pd.DataFrame({"a": list("xxyy"), "v": [1.0, 2, 3, 4]})
+    with blame.trace() as h:
+        kept = df[df.v > 0]
+        burst = kept.assign(l=[[1, 2]] * len(kept)).explode("l")
+        out = burst.sort_values("v")
+
+    run = h.run
+    ops = [s.op for s in run.steps if not s.minor]
+    assert ops == ["filter", "assign", "<untraced explode>", "sort_values"], ops
+
+    # and the chain stays honest: widened, still reaching the real source
+    exp = run.why(row=0, target=out)
+    assert exp.approximate is True
+    assert {run.nodes[f].label for f in exp.sources} == {"df"}
+    assert any("explode" in w for w in run.warnings)
+
+
+def test_untraced_chain_survives_collected_intermediates():
+    """pandas discards the frames it builds mid-operation immediately, so the
+    origin has to be resolved as the chain is built, not walked afterwards."""
+    import gc
+
+    df = pd.DataFrame({"g": list("aabb"), "v": [1.0, 2, 3, 4]})
+    with blame.trace() as h:
+        kept = df[df.v > 0]
+        flipped = kept.T
+        gc.collect()                       # drop whatever pandas left behind
+        out = flipped.reset_index()
+
+    exp = h.run.why(row=0, target=out)
+    assert exp.approximate is True
+    assert {h.run.nodes[f].label for f in exp.sources} == {"df"}
