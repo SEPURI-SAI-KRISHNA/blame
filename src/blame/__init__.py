@@ -39,7 +39,7 @@ def stop() -> Run | None:
     tracer = _tracer.stop()
     if tracer is None:
         return None
-    _LAST = Run(tracer.manifest(), tracer.store)
+    _LAST = Run(tracer.manifest(), tracer.store, tracer=tracer)
     return _LAST
 
 

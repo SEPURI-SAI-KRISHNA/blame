@@ -69,7 +69,8 @@ class Explanation:
         node = self.run.nodes[self.target_fid]
         cell = f", column {self.target_col!r}" if self.target_col else ""
         shown_rows = [int(r) for r in self.target_rows[:_MAX_SHOW]]
-        head = (f"why({node.label} [{self.target_fid}], "
+        head = (f"why({node.label} [{self.target_fid}] "
+                f"{node.data.nrows}x{node.data.ncols}, "
                 f"row{'s' if len(self.target_rows) != 1 else ''} "
                 f"{shown_rows}{cell})")
         lines = [head, ""]
@@ -92,8 +93,11 @@ class Explanation:
 class Run:
     """A recorded pipeline run, loaded from .blame/ or held in memory."""
 
-    def __init__(self, manifest: dict, store: Store):
+    def __init__(self, manifest: dict, store: Store, tracer=None):
         self.store = store
+        # only set for a run recorded in this process: lets `why(target=df)`
+        # resolve an actual frame object rather than guessing which one you meant
+        self._tracer = tracer
         self.run_id = manifest["run_id"]
         self.label = manifest.get("label", "")
         self.wall_seconds = manifest.get("wall_seconds", 0.0)
@@ -196,9 +200,29 @@ class Run:
         """The output frame of a step."""
         return self.frame(self.steps[step].output)
 
+    def _fid_of_object(self, obj) -> str | None:
+        """The node for a live frame object, if this run was recorded here."""
+        tracer = self._tracer
+        if tracer is None:
+            return None
+        fid = tracer._obj_to_fid.get(id(obj))
+        if fid is None:
+            return None
+        ref = tracer._refs.get(id(obj))
+        return fid if ref is None or ref() is obj else None   # guard id reuse
+
     def _resolve(self, target) -> str:
         if target is None:
             return self.result_fid
+        if not isinstance(target, (str, int)) and hasattr(target, "index"):
+            fid = self._fid_of_object(target)
+            if fid is not None:
+                return fid
+            raise KeyError(
+                "that frame is not in this run -- whatever produced it is not an "
+                "operation blame traces, so it has no recorded lineage. "
+                "run.table() lists the frames that are."
+            )
         if isinstance(target, str):
             if target in self.nodes:
                 return target
