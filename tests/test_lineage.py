@@ -5,6 +5,9 @@ output: a hidden column carries each source row's id through the pipeline,
 pandas propagates it, and we check that why() returns exactly that set.
 """
 
+import subprocess
+import sys
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -915,3 +918,33 @@ def test_diff_compares_by_value_not_by_row_position():
     d = before.diff(after, on=["region", "order_id"])
     # north and south are untouched; only the new west region appears
     assert [(c.key, c.kind) for c in d.changes] == [("west", "added")]
+
+
+def test_tracing_works_from_a_directory_whose_name_contains_pandas(tmp_path):
+    """Frames were attributed to pandas by searching the path for "pandas".
+
+    Any user working in ~/pandas-tutorial -- or in an unpacked pandas_blame
+    sdist -- had every operation classified as a pandas internal, so nothing
+    was recorded and `why` answered about an empty run. Silently: no error,
+    no warning, just no lineage.
+    """
+    script = (
+        "import blame, pandas as pd\n"
+        "df = pd.DataFrame({'k': ['a', 'b', 'a'], 'v': [1, 2, 3]})\n"
+        "with blame.trace() as h:\n"
+        "    f = df[df.v > 1]\n"
+        "    g = f.groupby('k', as_index=False)['v'].sum()\n"
+        "print(len(h.run.steps))\n"
+    )
+    out = {}
+    for name in ("plain", "my-pandas-work"):
+        d = tmp_path / name
+        d.mkdir()
+        (d / "s.py").write_text(script)
+        out[name] = subprocess.run(
+            [sys.executable, "s.py"], cwd=d, capture_output=True, text=True, check=True
+        ).stdout.strip()
+    assert out["plain"] == "2", f"baseline broken: {out}"
+    assert out["my-pandas-work"] == out["plain"], (
+        f"a directory named {'my-pandas-work'!r} silently disabled tracing: {out}"
+    )

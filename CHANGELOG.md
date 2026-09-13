@@ -6,6 +6,16 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- Tracing silently recorded nothing when the traced code lived in a path
+  containing the string `pandas` -- `~/pandas-tutorial/`, `~/pandas_work/`, an
+  unpacked `pandas_blame` sdist. Stack frames were attributed to pandas by
+  searching the file path for "pandas" rather than by comparing against the
+  directory pandas is installed in, so every user frame looked internal, no
+  steps were captured, and `why` answered about an empty run. No exception and
+  no warning: the pipeline ran normally and the lineage was simply absent.
+  Affects 0.1.0 through 0.1.2. ([#1](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/1))
+
 ## [0.1.2] - 2026-09-13
 
 ### Added
