@@ -72,3 +72,40 @@ def test_no_data_directories_are_tracked():
     ).stdout.splitlines()
     bad = [f for f in tracked if f.startswith((".blame/", "dist/")) or f.endswith(".pyc")]
     assert not bad, f"these should not be tracked: {bad}"
+
+
+def test_py_typed_marker_ships():
+    """PEP 561: without this file every downstream type checker silently
+    ignores the annotations in this package, however many there are."""
+    assert (ROOT / "src" / "blame" / "py.typed").exists()
+
+
+def test_classifiers_cover_every_python_ci_tests():
+    """The matrix is the truth about what is supported; the classifiers are
+    what PyPI shows. They drifted once -- CI proved 3.13 while PyPI said 3.12.
+    """
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    classified = {
+        c.rsplit(" :: ", 1)[1]
+        for c in pyproject["project"]["classifiers"]
+        if c.startswith("Programming Language :: Python :: 3.")
+    }
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    tested = set(re.findall(r'python:\s*"(3\.\d+)"', ci))
+    assert tested, "could not read the python versions out of the CI matrix"
+    assert tested <= classified, (
+        f"CI tests {sorted(tested - classified)}, PyPI does not advertise it"
+    )
+
+
+def test_publishing_action_is_pinned_to_a_digest():
+    """That step carries the OIDC identity allowed to publish to PyPI.
+    A moving tag there means an upstream compromise reaches the release."""
+    release = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    for line in release.splitlines():
+        if "gh-action-pypi-publish@" in line:
+            ref = line.split("@", 1)[1].split()[0]
+            assert re.fullmatch(r"[0-9a-f]{40}", ref), f"not a commit digest: {ref}"
+            break
+    else:
+        raise AssertionError("release.yml no longer publishes to PyPI")
