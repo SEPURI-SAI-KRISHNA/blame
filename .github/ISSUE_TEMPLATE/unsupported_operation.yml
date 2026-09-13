@@ -1,0 +1,22 @@
+name: Unsupported pandas operation
+description: An operation blame does not trace, or traces only approximately
+labels: ["enhancement", "coverage"]
+body:
+  - type: input
+    id: op
+    attributes:
+      label: The operation
+      placeholder: "DataFrame.explode"
+    validations: {required: true}
+  - type: textarea
+    id: usage
+    attributes:
+      label: How you use it
+      description: Real usage is more useful than the general case — it tells me which arguments actually matter.
+      render: python
+    validations: {required: true}
+  - type: textarea
+    id: behaviour
+    attributes:
+      label: What blame currently does
+      description: "Nothing at all, an `<untraced ...>` step, or a wrong answer?"

@@ -1,0 +1,60 @@
+name: Wrong or missing lineage
+description: blame gave the wrong answer, no answer, or crashed
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the report I most want. `blame` has only ever been run on its
+        own tests and the pandas documentation tutorials — if it gets something
+        wrong about a real pipeline, that is the interesting case.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did blame say, and what should it have said?
+      placeholder: |
+        why() reported rows [3, 7] of orders.csv, but row 7 has nothing to do
+        with that total — it is filtered out two steps earlier.
+    validations: {required: true}
+  - type: textarea
+    id: repro
+    attributes:
+      label: The smallest pipeline that shows it
+      description: >
+        Runnable code, with made-up data if the real data is private. A
+        DataFrame literal is ideal. This is the single thing that most affects
+        how fast it gets fixed.
+      render: python
+      placeholder: |
+        import blame, pandas as pd
+
+        df = pd.DataFrame({"a": [1, 2, 3], "b": [10.0, 20, 30]})
+        with blame.trace() as h:
+            out = df[df.a > 1].groupby("a", as_index=False)["b"].sum()
+        print(h.run.why(row=0, target=out))
+    validations: {required: true}
+  - type: textarea
+    id: steps
+    attributes:
+      label: Output of `run.table()`
+      description: The operations blame recorded. Paste it as-is.
+      render: text
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: "Run: `python -c \"import blame, pandas, numpy, pyarrow, sys; print(sys.version); print(blame.__version__, pandas.__version__, numpy.__version__, pyarrow.__version__)\"`"
+      render: text
+    validations: {required: true}
+  - type: checkboxes
+    id: approximate
+    attributes:
+      label: Did blame flag the step as approximate?
+      description: >
+        A `~` in `run.table()`, or `Explanation.approximate == True`. An answer
+        that is approximate *and says so* is working as designed — widened, not
+        wrong. An answer that is wrong and claims to be exact is a real bug.
+      options:
+        - label: The step was marked approximate (`~`)
+        - label: No approximate flag — blame claimed this answer was exact
