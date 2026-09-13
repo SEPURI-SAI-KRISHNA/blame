@@ -71,7 +71,12 @@ ignore = [
 testpaths = ["tests"]
 addopts = "-q --strict-markers --strict-config"
 filterwarnings = [
+    # Deprecations are errors on purpose: a library that monkeypatches pandas
+    # wants to hear about a pandas deprecation from its own CI, not from a user.
     "error::DeprecationWarning",
     "error::FutureWarning",
     "default::UserWarning",
+    # pandas 2.2 predates numpy 2.5 and trips this from inside timedeltas.pyx.
+    # Nothing we can act on, and it fires before any of our code runs.
+    "ignore:The 'generic' unit for NumPy timedelta is deprecated:DeprecationWarning",
 ]

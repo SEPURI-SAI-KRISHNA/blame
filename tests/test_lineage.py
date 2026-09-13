@@ -479,7 +479,7 @@ def test_resample_matches_ground_truth():
     assert len(run.frame(run.result_fid)) == len(daily), "the result must be the traced frame"
     for out_row in range(len(daily)):
         day = daily.index[out_row]
-        truth = np.flatnonzero((df.index >= day) & (df.index < day + pd.Timedelta("1D")))
+        truth = np.flatnonzero(df.index.normalize() == day)
         got = run.why(row=out_row).sources[run.sources[0]]
         assert np.array_equal(got, truth), f"row {out_row}"
 
@@ -489,7 +489,7 @@ def test_resample_without_column_selection_is_traced():
     df = pd.DataFrame({"v": np.arange(12.0)}, index=idx)
     with blame.trace() as h:
         daily = df.resample("D").sum()
-    truth = np.flatnonzero(df.index < df.index[0].normalize() + pd.Timedelta("1D"))
+    truth = np.flatnonzero(df.index.normalize() == df.index[0].normalize())
     assert np.array_equal(h.run.why(row=0).sources[h.run.sources[0]], truth)
     assert len(daily) == 4
 

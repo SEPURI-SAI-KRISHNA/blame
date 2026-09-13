@@ -19,6 +19,9 @@ Notable changes to `pandas-blame`. Format follows
   commit out of `git blame`.
 
 ### Fixed
+- Tests no longer construct `pandas.Timedelta`, which trips a numpy 2.5
+  deprecation from inside pandas 2.2. Found by running the matrix combination
+  (pandas 2.2 with numpy 2) that local testing had never covered.
 - Removed the `Typing :: Typed` classifier, which claimed typed support the
   package does not ship a `py.typed` marker for.
 
