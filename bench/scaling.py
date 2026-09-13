@@ -15,13 +15,15 @@ ROOT = Path("/tmp/blame-scaling")
 
 def make(n, seed=0):
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "id": np.arange(n),
-        "g": rng.integers(0, 500, n),
-        "a": rng.random(n) * 100,
-        "b": rng.random(n) * 100,
-        "c": rng.choice(list("xyz"), n),
-    })
+    return pd.DataFrame(
+        {
+            "id": np.arange(n),
+            "g": rng.integers(0, 500, n),
+            "a": rng.random(n) * 100,
+            "b": rng.random(n) * 100,
+            "c": rng.choice(list("xyz"), n),
+        }
+    )
 
 
 def pipeline(df, steps):
@@ -67,8 +69,10 @@ def main():
         if base is None:
             base = capture
         per = (capture - base) / max(1, recorded - 1)
-        print(f"{recorded:>6} {plain:>8.3f}s {wall:>8.3f}s {wall / plain:>6.2f}x "
-              f"{capture:>8.3f}s {per * 1000:>8.1f}ms")
+        print(
+            f"{recorded:>6} {plain:>8.3f}s {wall:>8.3f}s {wall / plain:>6.2f}x "
+            f"{capture:>8.3f}s {per * 1000:>8.1f}ms"
+        )
     if ROOT.exists():
         shutil.rmtree(ROOT)
 

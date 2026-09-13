@@ -22,8 +22,8 @@ import numpy as np
 
 _ASSET = Path(__file__).parent / "_ui" / "index.html"
 
-PAGE_ROWS = 200          # grid rows per request
-MAX_MARKS = 20_000       # per frame; beyond this the page shows counts only
+PAGE_ROWS = 200  # grid rows per request
+MAX_MARKS = 20_000  # per frame; beyond this the page shows counts only
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +57,7 @@ def _marks(arrays: dict[str, np.ndarray]) -> dict[str, dict]:
     out = {}
     for fid, rows in arrays.items():
         listed = [int(r) for r in rows[:MAX_MARKS]]
-        out[fid] = {"n": int(len(rows)), "rows": listed, "truncated": len(rows) > MAX_MARKS}
+        out[fid] = {"n": len(rows), "rows": listed, "truncated": len(rows) > MAX_MARKS}
     return out
 
 
@@ -74,12 +74,20 @@ def run_payload(run) -> dict:
             "columns": [c.name for c in node.data.columns],
             "sampled": [node.data.stored_rows, node.data.nrows] if node.data.sampled else None,
         }
-    steps = [{
-        "idx": s.idx, "op": s.op, "detail": s.detail, "loc": s.loc,
-        "inputs": s.inputs, "output": s.output,
-        "approximate": s.approximate, "minor": s.minor,
-        "duration_ms": s.duration_ms,
-    } for s in run.steps]
+    steps = [
+        {
+            "idx": s.idx,
+            "op": s.op,
+            "detail": s.detail,
+            "loc": s.loc,
+            "inputs": s.inputs,
+            "output": s.output,
+            "approximate": s.approximate,
+            "minor": s.minor,
+            "duration_ms": s.duration_ms,
+        }
+        for s in run.steps
+    ]
     return {
         "run_id": run.run_id,
         "label": run.label,
@@ -100,14 +108,18 @@ def frame_payload(run, fid: str, offset: int = 0, limit: int = PAGE_ROWS) -> dic
     frame = run.frame(fid)
     total = len(frame)
     offset = max(0, min(offset, max(0, total - 1)))
-    view = frame.iloc[offset:offset + limit]
+    view = frame.iloc[offset : offset + limit]
 
     index = [_cell(v) for v in view.index]
     labelled = index != list(range(offset, offset + len(view)))
     columns = [str(c) for c in view.columns]
     rows = [[_cell(v) for v in rec] for rec in view.itertuples(index=False, name=None)]
-    numeric = [bool(np.issubdtype(view[c].dtype, np.number)) if hasattr(view[c].dtype, "kind")
-               and view[c].dtype.kind in "iufcb" else False for c in view.columns]
+    numeric = [
+        bool(np.issubdtype(view[c].dtype, np.number))
+        if hasattr(view[c].dtype, "kind") and view[c].dtype.kind in "iufcb"
+        else False
+        for c in view.columns
+    ]
 
     missing = [c.name for c in node.data.columns if str(c.name) not in columns]
     return {
@@ -133,13 +145,22 @@ def explain_payload(run, fid: str, rows: list[int], col: str | None = None) -> d
         "rows": [int(r) for r in rows],
         "col": col,
         "approximate": bool(explanation.approximate),
-        "hops": [{
-            "step": h.step, "op": h.op, "detail": h.detail, "loc": h.loc,
-            "approximate": h.approximate, "out_rows": h.out_rows,
-            "contributions": {k: int(v) for k, v in h.contributions.items()},
-        } for h in explanation.hops],
-        "sources": {f: {"n": int(len(r)), "rows": [int(x) for x in r[:MAX_MARKS]]}
-                    for f, r in explanation.sources.items()},
+        "hops": [
+            {
+                "step": h.step,
+                "op": h.op,
+                "detail": h.detail,
+                "loc": h.loc,
+                "approximate": h.approximate,
+                "out_rows": h.out_rows,
+                "contributions": {k: int(v) for k, v in h.contributions.items()},
+            }
+            for h in explanation.hops
+        ],
+        "sources": {
+            f: {"n": len(r), "rows": [int(x) for x in r[:MAX_MARKS]]}
+            for f, r in explanation.sources.items()
+        },
         "marks": _marks(marks),
     }
 
@@ -153,7 +174,7 @@ def _handler(run, lock):
     class Handler(BaseHTTPRequestHandler):
         server_version = "blame"
 
-        def log_message(self, *args):        # a local UI should be quiet
+        def log_message(self, *args):  # a local UI should be quiet
             pass
 
         def _send(self, body: bytes, content_type: str, status: int = 200) -> None:
@@ -182,10 +203,14 @@ def _handler(run, lock):
                     if url.path == "/api/run":
                         self._json(run_payload(run))
                     elif url.path == "/api/frame":
-                        self._json(frame_payload(
-                            run, arg("fid"),
-                            int(arg("offset", 0) or 0),
-                            min(int(arg("limit", PAGE_ROWS) or PAGE_ROWS), 2000)))
+                        self._json(
+                            frame_payload(
+                                run,
+                                arg("fid"),
+                                int(arg("offset", 0) or 0),
+                                min(int(arg("limit", PAGE_ROWS) or PAGE_ROWS), 2000),
+                            )
+                        )
                     elif url.path == "/api/why":
                         rows = [int(r) for r in (arg("rows", "") or "").split(",") if r != ""]
                         self._json(explain_payload(run, arg("fid"), rows, arg("col") or None))
@@ -193,7 +218,7 @@ def _handler(run, lock):
                         self._json({"error": "not found"}, 404)
             except BrokenPipeError:
                 pass
-            except Exception as exc:            # a failed query must not kill the page
+            except Exception as exc:  # a failed query must not kill the page
                 self._json({"error": f"{type(exc).__name__}: {exc}"}, 500)
 
     return Handler

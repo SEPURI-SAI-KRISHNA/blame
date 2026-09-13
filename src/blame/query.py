@@ -22,7 +22,7 @@ def _apply_take(column, take: np.ndarray):
     missing = take < 0
     safe = np.where(missing, 0, take)
     if len(values) and safe.max(initial=0) >= len(values):
-        safe = np.clip(safe, 0, len(values) - 1)     # parent was sampled
+        safe = np.clip(safe, 0, len(values) - 1)  # parent was sampled
         missing = missing | (take >= len(values))
     out = pd.Series(values[safe]) if len(values) else pd.Series([None] * len(take))
     return out.mask(pd.Series(missing)) if missing.any() else out
@@ -42,13 +42,15 @@ class Hop:
     def __repr__(self) -> str:
         flag = "  ~approximate" if self.approximate else ""
         via = f" [{self.loc}]" if self.loc else ""
-        parts = ", ".join(f"{k}:{v} row{'s' if v != 1 else ''}" for k, v in self.contributions.items())
+        parts = ", ".join(
+            f"{k}:{v} row{'s' if v != 1 else ''}" for k, v in self.contributions.items()
+        )
         return f"step {self.step:>3} {self.op}({self.detail}){via} <- {parts}{flag}"
 
 
 @dataclass
 class Explanation:
-    run: "Run"
+    run: Run
     target_fid: str
     target_rows: np.ndarray
     target_col: str | None
@@ -56,7 +58,7 @@ class Explanation:
     hops: list[Hop]
     approximate: bool
 
-    def frames(self) -> dict[str, "object"]:
+    def frames(self) -> dict[str, object]:
         """Materialize the contributing source rows, one DataFrame per source."""
         out = {}
         for fid, rows in self.sources.items():
@@ -69,10 +71,12 @@ class Explanation:
         node = self.run.nodes[self.target_fid]
         cell = f", column {self.target_col!r}" if self.target_col else ""
         shown_rows = [int(r) for r in self.target_rows[:_MAX_SHOW]]
-        head = (f"why({node.label} [{self.target_fid}] "
-                f"{node.data.nrows}x{node.data.ncols}, "
-                f"row{'s' if len(self.target_rows) != 1 else ''} "
-                f"{shown_rows}{cell})")
+        head = (
+            f"why({node.label} [{self.target_fid}] "
+            f"{node.data.nrows}x{node.data.ncols}, "
+            f"row{'s' if len(self.target_rows) != 1 else ''} "
+            f"{shown_rows}{cell})"
+        )
         lines = [head, ""]
         if self.approximate:
             lines.append("  ! this path crosses an approximate step; treat rows as candidates")
@@ -113,7 +117,7 @@ class Run:
     # -- loading ---------------------------------------------------------
 
     @staticmethod
-    def load(run_id: str | None = None, root: str | Path = ".blame") -> "Run":
+    def load(run_id: str | None = None, root: str | Path = ".blame") -> Run:
         store = Store(root)
         runs = store.list_runs()
         if not runs:
@@ -209,7 +213,7 @@ class Run:
         if fid is None:
             return None
         ref = tracer._refs.get(id(obj))
-        return fid if ref is None or ref() is obj else None   # guard id reuse
+        return fid if ref is None or ref() is obj else None  # guard id reuse
 
     def _resolve(self, target) -> str:
         if target is None:
@@ -236,8 +240,9 @@ class Run:
 
     # -- the questions ---------------------------------------------------
 
-    def why(self, row: int | list[int], col: str | None = None, target=None,
-            stop_at: str | None = None) -> Explanation:
+    def why(
+        self, row: int | list[int], col: str | None = None, target=None, stop_at: str | None = None
+    ) -> Explanation:
         """Which source rows produced this output cell (or rows)."""
         fid = self._resolve(target)
         rows = np.atleast_1d(np.asarray(row, dtype=np.int64))
@@ -262,8 +267,18 @@ class Run:
                 contributions[pfid] = len(prows)
             approximate |= step.approximate
             if not step.minor:
-                hops.append(Hop(step.idx, step.op, step.detail, step.loc, step.approximate,
-                                step.output, len(out_rows), contributions))
+                hops.append(
+                    Hop(
+                        step.idx,
+                        step.op,
+                        step.detail,
+                        step.loc,
+                        step.approximate,
+                        step.output,
+                        len(out_rows),
+                        contributions,
+                    )
+                )
 
         sources = {f: np.sort(r) for f, r in frontier.items()}
         return Explanation(self, fid, rows, col, sources, hops, approximate)
@@ -297,8 +312,11 @@ class Run:
         # ancestors -- an ancestor's other descendants did not touch this cell.
         down: dict[str, np.ndarray] = {fid: rows}
         for step in self.steps:
-            hits = [self.lineage(step.idx).children_of(slot, down[in_fid])
-                    for slot, in_fid in enumerate(step.inputs) if in_fid in down]
+            hits = [
+                self.lineage(step.idx).children_of(slot, down[in_fid])
+                for slot, in_fid in enumerate(step.inputs)
+                if in_fid in down
+            ]
             if hits:
                 merged = np.unique(np.concatenate(hits))
                 if len(merged):
@@ -308,8 +326,7 @@ class Run:
 
         return {f: np.sort(r) for f, r in marks.items() if len(r)}
 
-    def diff(self, other: "Run", target=None, on=None, rtol: float = 0.0,
-             explain: int = 50):
+    def diff(self, other: Run, target=None, on=None, rtol: float = 0.0, explain: int = 50):
         """What changed going from this run to `other`, and which input rows
         did it. Pass `on` to pair rows by a key column instead of the index."""
         from .diff import diff as _diff
@@ -324,7 +341,9 @@ class Run:
 
     def forward(self, row: int | list[int], target=None) -> dict[str, np.ndarray]:
         """Everything a source row touched, downstream."""
-        fid = self._resolve(target if target is not None else (self.sources[0] if self.sources else None))
+        fid = self._resolve(
+            target if target is not None else (self.sources[0] if self.sources else None)
+        )
         reached: dict[str, np.ndarray] = {fid: np.atleast_1d(np.asarray(row, dtype=np.int64))}
         for step in self.steps:
             hits: list[np.ndarray] = []
@@ -340,8 +359,11 @@ class Run:
     # -- reporting -------------------------------------------------------
 
     def summary(self) -> str:
-        overhead = (f"{self.capture_seconds:.2f}s capture on {self.wall_seconds:.2f}s wall"
-                    if self.wall_seconds else "")
+        overhead = (
+            f"{self.capture_seconds:.2f}s capture on {self.wall_seconds:.2f}s wall"
+            if self.wall_seconds
+            else ""
+        )
         usage = self.store.disk_usage()
         mb = (usage["columns"] + usage["runs"]) / 1e6
         parts = [f"run {self.run_id}"]
@@ -357,11 +379,16 @@ class Run:
         rows = [("step", "op", "detail", "shape", "where", "")]
         for s in steps:
             node = self.nodes[s.output]
-            rows.append((
-                str(s.idx), s.op, s.detail[:38],
-                f"{node.data.nrows}x{node.data.ncols}",
-                s.loc, "~" if s.approximate else "",
-            ))
+            rows.append(
+                (
+                    str(s.idx),
+                    s.op,
+                    s.detail[:38],
+                    f"{node.data.nrows}x{node.data.ncols}",
+                    s.loc,
+                    "~" if s.approximate else "",
+                )
+            )
         widths = [max(len(r[i]) for r in rows) for i in range(6)]
         out = []
         for i, r in enumerate(rows):
@@ -370,5 +397,7 @@ class Run:
                 out.append("  ".join("-" * w for w in widths).rstrip())
         hidden = len(self.steps) - len(steps)
         if hidden and not all_steps:
-            out.append(f"({hidden} internal column access step(s) hidden; table(all_steps=True) to show)")
+            out.append(
+                f"({hidden} internal column access step(s) hidden; table(all_steps=True) to show)"
+            )
         return "\n".join(out)

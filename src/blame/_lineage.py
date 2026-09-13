@@ -26,7 +26,7 @@ class Lineage:
     def children_of(self, slot: int, in_rows: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
-    def take_for(self, slot: int) -> "np.ndarray | None | bool":
+    def take_for(self, slot: int) -> np.ndarray | bool | None:
         """The row mapping for one input, as an array to index the parent with.
 
         None  -- identity, the parent column is the output column unchanged.
@@ -38,7 +38,7 @@ class Lineage:
         return {}
 
     @classmethod
-    def rebuild(cls, meta: dict, arrays: dict[str, np.ndarray]) -> "Lineage":
+    def rebuild(cls, meta: dict, arrays: dict[str, np.ndarray]) -> Lineage:
         raise NotImplementedError
 
     def meta(self) -> dict:

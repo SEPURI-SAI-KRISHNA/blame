@@ -12,7 +12,7 @@ class FrameNode:
     fid: str
     label: str
     data: FrameData
-    step: int | None = None       # step that produced it; None for sources
+    step: int | None = None  # step that produced it; None for sources
     columns: list[str] = field(default_factory=list)
 
     def to_json(self) -> dict:
@@ -25,7 +25,7 @@ class FrameNode:
         }
 
     @staticmethod
-    def from_json(d: dict) -> "FrameNode":
+    def from_json(d: dict) -> FrameNode:
         return FrameNode(
             fid=d["fid"],
             label=d["label"],
@@ -65,5 +65,5 @@ class Step:
         }
 
     @staticmethod
-    def from_json(d: dict) -> "Step":
+    def from_json(d: dict) -> Step:
         return Step(**d)

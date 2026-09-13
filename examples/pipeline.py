@@ -2,18 +2,23 @@
 so its total is double-counted in the regional report."""
 
 import pandas as pd
+
 import blame
 
-orders = pd.DataFrame({
-    "order_id":    [1, 2, 3, 4, 5, 6],
-    "customer_id": [10, 11, 12, 10, 13, 11],
-    "qty":         [2, 1, 0, 5, 3, -1],
-    "price":       [10.0, 25.0, 8.0, 4.0, 12.0, 30.0],
-})
-customers = pd.DataFrame({
-    "customer_id": [10, 11, 12, 13, 11],       # 11 appears twice -> the bug
-    "region":      ["north", "south", "north", "west", "south"],
-})
+orders = pd.DataFrame(
+    {
+        "order_id": [1, 2, 3, 4, 5, 6],
+        "customer_id": [10, 11, 12, 10, 13, 11],
+        "qty": [2, 1, 0, 5, 3, -1],
+        "price": [10.0, 25.0, 8.0, 4.0, 12.0, 30.0],
+    }
+)
+customers = pd.DataFrame(
+    {
+        "customer_id": [10, 11, 12, 13, 11],  # 11 appears twice -> the bug
+        "region": ["north", "south", "north", "west", "south"],
+    }
+)
 
 with blame.trace("regional revenue") as handle:
     clean = orders[orders.qty > 0]

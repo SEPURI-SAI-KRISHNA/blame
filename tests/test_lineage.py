@@ -19,20 +19,22 @@ def _isolated_store(tmp_path, monkeypatch):
 
 def _orders(n=40, seed=0):
     rng = np.random.default_rng(seed)
-    return pd.DataFrame({
-        "id": np.arange(n),
-        "cust": rng.integers(0, 7, n),
-        "qty": rng.integers(-2, 6, n),
-        "price": rng.integers(1, 50, n).astype(float),
-    })
+    return pd.DataFrame(
+        {
+            "id": np.arange(n),
+            "cust": rng.integers(0, 7, n),
+            "qty": rng.integers(-2, 6, n),
+            "price": rng.integers(1, 50, n).astype(float),
+        }
+    )
 
 
 # -- ground truth ---------------------------------------------------------
 
+
 def test_filter_join_groupby_matches_ground_truth():
     orders = _orders()
-    customers = pd.DataFrame({"cust": [0, 1, 2, 3, 4, 5, 6, 1],
-                              "region": list("nsewnsen")})
+    customers = pd.DataFrame({"cust": [0, 1, 2, 3, 4, 5, 6, 1], "region": list("nsewnsen")})
     truth_orders = orders.assign(_src=np.arange(len(orders)))
 
     with blame.trace() as h:
@@ -94,8 +96,9 @@ def test_concat_lineage():
         out = pd.concat([a, b], ignore_index=True)
     run = h.run
     afid, bfid = run.steps[-1].inputs
-    assert run.why(row=1).sources == {afid: np.array([1])} or \
-        run.why(row=1).sources[afid].tolist() == [1]
+    assert run.why(row=1).sources == {afid: np.array([1])} or run.why(row=1).sources[
+        afid
+    ].tolist() == [1]
     assert run.why(row=4).sources[bfid].tolist() == [1]
 
 
@@ -123,6 +126,7 @@ def test_drop_duplicates_and_dropna():
 
 # -- forward --------------------------------------------------------------
 
+
 def test_forward_is_the_inverse_of_why():
     orders = _orders(30, seed=1)
     with blame.trace() as h:
@@ -139,6 +143,7 @@ def test_forward_is_the_inverse_of_why():
 
 
 # -- honesty --------------------------------------------------------------
+
 
 def test_apply_is_flagged_approximate():
     df = _orders(10)
@@ -157,6 +162,7 @@ def test_exact_path_is_not_flagged():
 
 
 # -- plumbing -------------------------------------------------------------
+
 
 def test_pandas_is_restored_and_results_unchanged():
     df = _orders(10)
@@ -206,6 +212,7 @@ def test_column_dedup_stores_untouched_columns_once():
 
 # -- materialization ------------------------------------------------------
 
+
 def test_referenced_columns_rebuild_the_real_intermediates():
     """Most columns are stored as references to a parent. Rebuilding them must
     reproduce the frame the pipeline actually held at that step."""
@@ -229,8 +236,9 @@ def test_referenced_columns_rebuild_the_real_intermediates():
             continue
         got = run.at(step.idx)
         want = truth[step.op].reset_index(drop=True)
-        pd.testing.assert_frame_equal(got.reset_index(drop=True), want[got.columns],
-                                      check_dtype=False)
+        pd.testing.assert_frame_equal(
+            got.reset_index(drop=True), want[got.columns], check_dtype=False
+        )
 
 
 def test_outer_join_unmatched_rows_materialize_as_na():
@@ -269,6 +277,7 @@ def test_sampling_keeps_lineage_exact_and_says_so():
 
 # -- untraced operations must not masquerade as sources -------------------
 
+
 def test_untraced_op_becomes_an_explicit_approximate_step():
     """An operation we do not cover must break the chain loudly: an explicit
     step, an approximate flag, and the real source still named. Silently
@@ -277,7 +286,7 @@ def test_untraced_op_becomes_an_explicit_approximate_step():
     df = pd.DataFrame({"a": list("xxyy"), "b": list("pqpq"), "v": [1, 2, 3, 4]})
     with blame.trace() as h:
         kept = df[df.v > 0]
-        flipped = kept.T                      # transpose has no row-level answer
+        flipped = kept.T  # transpose has no row-level answer
         out = flipped.reset_index()
     run = h.run
     exp = run.why(row=0)
@@ -328,6 +337,7 @@ def test_in_place_column_assignment_keeps_row_lineage():
 
 
 # -- the graph the UI draws ------------------------------------------------
+
 
 def test_internal_column_access_does_not_invent_a_source():
     """Deriving lineage uses pandas itself. None of that may leak into the
@@ -406,12 +416,13 @@ def test_ui_payloads_are_json_safe_and_agree_with_the_api():
 
     page = json.loads(json.dumps(ui.frame_payload(run, run.sources[0]), allow_nan=False))
     assert page["nrows"] == len(orders)
-    assert page["rows"][3][page["columns"].index("price")] is None   # NaN -> null
+    assert page["rows"][3][page["columns"].index("price")] is None  # NaN -> null
 
     answer = json.loads(json.dumps(ui.explain_payload(run, run.result_fid, [0]), allow_nan=False))
     truth = run.highlight(row=0, target=run.result_fid)
-    assert {f: m["rows"] for f, m in answer["marks"].items()} == \
-           {f: r.tolist() for f, r in truth.items()}
+    assert {f: m["rows"] for f, m in answer["marks"].items()} == {
+        f: r.tolist() for f, r in truth.items()
+    }
 
 
 def test_ui_server_answers_the_three_endpoints():
@@ -431,6 +442,7 @@ def test_ui_server_answers_the_three_endpoints():
     thread.start()
     base = f"http://127.0.0.1:{server.server_port}"
     try:
+
         def get(path):
             with urllib.request.urlopen(base + path, timeout=10) as r:
                 return r.read()
@@ -452,6 +464,7 @@ def test_ui_server_answers_the_three_endpoints():
 
 
 # -- found by running on third-party code ----------------------------------
+
 
 def test_resample_matches_ground_truth():
     """resample is a group-by over time bins. It used to be untraced, and the
@@ -484,8 +497,7 @@ def test_resample_without_column_selection_is_traced():
 def test_duplicate_index_does_not_force_approximate_lineage():
     """A duplicated index is everywhere in real data -- after concat, melt, or
     just reading a file keyed on a non-unique column."""
-    df = pd.DataFrame({"city": list("aabbcc"), "v": [5, 3, 9, 1, 7, 2]},
-                      index=[0, 0, 1, 1, 2, 2])
+    df = pd.DataFrame({"city": list("aabbcc"), "v": [5, 3, 9, 1, 7, 2]}, index=[0, 0, 1, 1, 2, 2])
     with blame.trace() as h:
         top = df.head(3)
         srt = df.sort_values("v")
@@ -532,6 +544,7 @@ def test_plotting_does_not_enter_the_graph():
     not steps in the user's pipeline."""
     pytest.importorskip("matplotlib")
     import matplotlib
+
     matplotlib.use("Agg")
 
     df = pd.DataFrame({"v": np.arange(10.0), "w": np.arange(10.0) * 2})
@@ -557,7 +570,7 @@ def test_why_can_be_asked_about_the_frame_itself():
     by_default = run.why(row=0)
     assert by_object.target_fid == by_default.target_fid
     assert run.why(row=0, target=kept).target_fid != by_object.target_fid
-    assert f"{len(report)}x" in repr(by_object)      # the shape is stated
+    assert f"{len(report)}x" in repr(by_object)  # the shape is stated
 
 
 def test_asking_about_an_untraced_frame_says_so_instead_of_guessing():
@@ -571,13 +584,16 @@ def test_asking_about_an_untraced_frame_says_so_instead_of_guessing():
 
 # -- reshaping -------------------------------------------------------------
 
+
 def _wide():
-    return pd.DataFrame({
-        "city":  ["ny", "ny", "la", "la", "sf", "sf"],
-        "month": ["jan", "feb", "jan", "feb", "jan", "feb"],
-        "temp":  [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
-        "hum":   [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
-    })
+    return pd.DataFrame(
+        {
+            "city": ["ny", "ny", "la", "la", "sf", "sf"],
+            "month": ["jan", "feb", "jan", "feb", "jan", "feb"],
+            "temp": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            "hum": [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+        }
+    )
 
 
 def test_melt_matches_ground_truth():
@@ -651,9 +667,13 @@ def test_reshape_survives_keys_it_cannot_read():
 
 
 def test_pivot_without_an_index_argument_uses_the_frames_own_index():
-    df = pd.DataFrame({"city": ["ny", "ny", "la", "la"],
-                       "month": ["jan", "feb", "jan", "feb"],
-                       "temp": [1.0, 2.0, 3.0, 4.0]}).set_index("city")
+    df = pd.DataFrame(
+        {
+            "city": ["ny", "ny", "la", "la"],
+            "month": ["jan", "feb", "jan", "feb"],
+            "temp": [1.0, 2.0, 3.0, 4.0],
+        }
+    ).set_index("city")
     with blame.trace() as h:
         wide = df.pivot(columns="month", values="temp")
     run, src = h.run, h.run.sources[0]
@@ -670,9 +690,14 @@ def test_reshape_keys_are_positional_not_index_aligned():
     any frame read with index_col, i.e. most real ones."""
     n = 60
     idx = pd.date_range("2024-01-01", periods=n, freq="h")
-    df = pd.DataFrame({"site": np.repeat(list("abcd"), n // 4),
-                       "metric": np.tile(["no2", "pm25"], n // 2),
-                       "value": np.arange(float(n))}, index=idx)
+    df = pd.DataFrame(
+        {
+            "site": np.repeat(list("abcd"), n // 4),
+            "metric": np.tile(["no2", "pm25"], n // 2),
+            "value": np.arange(float(n)),
+        },
+        index=idx,
+    )
     assert not isinstance(df.index, pd.RangeIndex)
 
     with blame.trace() as h:
@@ -690,8 +715,9 @@ def test_reshape_keys_are_positional_not_index_aligned():
 def test_pivot_table_margins_row_spans_every_input_row():
     df = _wide()
     with blame.trace() as h:
-        table = df.pivot_table(values="temp", index="city", columns="month",
-                               aggfunc="sum", margins=True)
+        table = df.pivot_table(
+            values="temp", index="city", columns="month", aggfunc="sum", margins=True
+        )
     run, src = h.run, h.run.sources[0]
     step = [s for s in run.steps if s.op == "pivot_table"][0]
     total_row = list(table.index).index("All")
@@ -743,7 +769,7 @@ def test_untraced_chain_survives_collected_intermediates():
     with blame.trace() as h:
         kept = df[df.v > 0]
         flipped = kept.T
-        gc.collect()                       # drop whatever pandas left behind
+        gc.collect()  # drop whatever pandas left behind
         out = flipped.reset_index()
 
     exp = h.run.why(row=0, target=out)
@@ -752,6 +778,7 @@ def test_untraced_chain_survives_collected_intermediates():
 
 
 # -- diffing two runs ------------------------------------------------------
+
 
 def _sales(orders, customers):
     with blame.trace() as h:
@@ -763,14 +790,19 @@ def _sales(orders, customers):
 
 
 def _books(qty3=4, extra=None, regions=None):
-    orders = pd.DataFrame({"order_id": [1, 2, 3, 4],
-                           "cust": [10, 11, 12, 10],
-                           "qty": [2, 1, qty3, 5],
-                           "price": [10.0, 25.0, 8.0, 4.0]})
+    orders = pd.DataFrame(
+        {
+            "order_id": [1, 2, 3, 4],
+            "cust": [10, 11, 12, 10],
+            "qty": [2, 1, qty3, 5],
+            "price": [10.0, 25.0, 8.0, 4.0],
+        }
+    )
     if extra is not None:
         orders = pd.concat([orders, extra], ignore_index=True)
-    customers = pd.DataFrame({"cust": [10, 11, 12],
-                              "region": regions or ["north", "south", "north"]})
+    customers = pd.DataFrame(
+        {"cust": [10, 11, 12], "region": regions or ["north", "south", "north"]}
+    )
     return orders, customers
 
 
@@ -817,7 +849,7 @@ def test_diff_says_so_when_no_input_change_explains_the_output():
     itself changed. Inventing a cause would be worse than admitting none."""
     orders, customers = _books()
     before = _sales(orders, customers)
-    with blame.trace() as h:                       # same inputs, different filter
+    with blame.trace() as h:  # same inputs, different filter
         clean = orders[orders.qty > 1]
         clean = clean.assign(total=clean.qty * clean.price)
         joined = clean.merge(customers, on="cust")
@@ -858,7 +890,7 @@ def test_unexplained_rows_is_the_assertion_for_a_test_suite():
     after = _sales(orders, customers)
     assert before.diff(after, on=["region", "order_id"]).unexplained_rows() == []
 
-    with blame.trace() as h:                        # same data, changed pipeline
+    with blame.trace() as h:  # same data, changed pipeline
         clean = orders[orders.qty > 1]
         clean = clean.assign(total=clean.qty * clean.price)
         joined = clean.merge(customers, on="cust")
@@ -871,12 +903,13 @@ def test_diff_compares_by_value_not_by_row_position():
     changed -- position is not identity across runs."""
     orders, customers = _books()
     before = _sales(orders, customers)
-    shifted = pd.concat([
-        pd.DataFrame({"order_id": [0], "cust": [13], "qty": [1], "price": [1.0]}),
-        orders], ignore_index=True)
-    customers2 = pd.concat([customers,
-                            pd.DataFrame({"cust": [13], "region": ["west"]})],
-                           ignore_index=True)
+    shifted = pd.concat(
+        [pd.DataFrame({"order_id": [0], "cust": [13], "qty": [1], "price": [1.0]}), orders],
+        ignore_index=True,
+    )
+    customers2 = pd.concat(
+        [customers, pd.DataFrame({"cust": [13], "region": ["west"]})], ignore_index=True
+    )
     after = _sales(shifted, customers2)
 
     d = before.diff(after, on=["region", "order_id"])

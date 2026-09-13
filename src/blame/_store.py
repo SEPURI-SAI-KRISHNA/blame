@@ -90,7 +90,7 @@ class FrameData:
         }
 
     @staticmethod
-    def from_json(d: dict) -> "FrameData":
+    def from_json(d: dict) -> FrameData:
         return FrameData(
             nrows=d["nrows"],
             ncols=d["ncols"],
@@ -102,8 +102,12 @@ class FrameData:
 
 
 class Store:
-    def __init__(self, root: str | Path = ".blame", sample_rows: int | None = None,
-                 compression: str | None = "none"):
+    def __init__(
+        self,
+        root: str | Path = ".blame",
+        sample_rows: int | None = None,
+        compression: str | None = "none",
+    ):
         self.write_options = _write_options(compression)
         self.root = Path(root)
         self.columns_dir = self.root / "columns"
@@ -163,13 +167,13 @@ class Store:
         refs: list[ColumnRef] = []
         for name in view.columns:
             if str(name) in plan:
-                refs.append(ColumnRef(str(name), str(view[name].dtype), "ref",
-                                      ref=plan[str(name)]))
+                refs.append(ColumnRef(str(name), str(view[name].dtype), "ref", ref=plan[str(name)]))
                 continue
             col = view[name]
             arr = _to_arrow(col)
-            refs.append(ColumnRef(str(name), str(col.dtype), "data",
-                                  self._put_array(str(name), arr)))
+            refs.append(
+                ColumnRef(str(name), str(col.dtype), "data", self._put_array(str(name), arr))
+            )
 
         index = self._put_index(view, plan)
 
@@ -182,22 +186,24 @@ class Store:
             stored_rows=len(view),
         )
 
-    def _put_index(self, view, plan: dict) -> "ColumnRef | None":
+    def _put_index(self, view, plan: dict) -> ColumnRef | None:
         import pandas as pd
 
         idx = view.index
         if "__index__" in plan:
             return ColumnRef("__index__", str(idx.dtype), "ref", ref=plan["__index__"])
         if isinstance(idx, pd.RangeIndex):
-            return ColumnRef("__index__", str(idx.dtype), "range",
-                             ref={"start": int(idx.start), "stop": int(idx.stop),
-                                  "step": int(idx.step)})
+            return ColumnRef(
+                "__index__",
+                str(idx.dtype),
+                "range",
+                ref={"start": int(idx.start), "stop": int(idx.stop), "step": int(idx.step)},
+            )
         try:
             arr = _to_arrow(idx.to_series())
         except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError):
             return None
-        return ColumnRef("__index__", str(idx.dtype), "data",
-                         self._put_array("__index__", arr))
+        return ColumnRef("__index__", str(idx.dtype), "data", self._put_array("__index__", arr))
 
     # -- lineage ---------------------------------------------------------
 
@@ -205,7 +211,7 @@ class Store:
     def _narrow(a: np.ndarray) -> np.ndarray:
         """Row positions fit in int32 for any frame under 2 billion rows.
         Halves both the bytes written and the time spent writing them."""
-        if a.dtype == np.int64 and (len(a) == 0 or (a.min() >= -2**31 and a.max() < 2**31 - 1)):
+        if a.dtype == np.int64 and (len(a) == 0 or (a.min() >= -(2**31) and a.max() < 2**31 - 1)):
             return a.astype(np.int32, copy=False)
         return a
 
@@ -230,7 +236,9 @@ class Store:
             with ipc.open_file(path) as reader:
                 table = reader.read_all()
             name = table.schema.names[0]
-            out[name] = table.column(name).to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+            out[name] = (
+                table.column(name).to_numpy(zero_copy_only=False).astype(np.int64, copy=False)
+            )
         return out
 
     # -- runs ------------------------------------------------------------

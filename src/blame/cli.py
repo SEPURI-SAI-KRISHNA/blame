@@ -8,8 +8,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .query import Run
 from ._store import Store
+from .query import Run
 
 
 def _run(args) -> Run:
@@ -25,7 +25,9 @@ def _cmd_runs(args) -> int:
     rows = []
     for rid in runs:
         m = store.get_manifest(rid)
-        rows.append((rid, m.get("label", ""), str(len(m["steps"])), f"{m.get('wall_seconds', 0):.2f}s"))
+        rows.append(
+            (rid, m.get("label", ""), str(len(m["steps"])), f"{m.get('wall_seconds', 0):.2f}s")
+        )
     rows.sort(key=lambda r: r[0])
     width = max(len(r[1]) for r in rows) if rows else 0
     for rid, label, steps, wall in rows:
@@ -129,9 +131,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("a", nargs="?", default=None, help="older run id (default: second newest)")
     p.add_argument("b", nargs="?", default=None, help="newer run id (default: newest)")
     p.add_argument("--target", default=None, help="frame id, label or step index")
-    p.add_argument("--on", action="append", default=None, metavar="COL",
-                   help="column to pair rows by; repeatable, applied to each "
-                        "frame that has it (e.g. --on region --on order_id)")
+    p.add_argument(
+        "--on",
+        action="append",
+        default=None,
+        metavar="COL",
+        help="column to pair rows by; repeatable, applied to each "
+        "frame that has it (e.g. --on region --on order_id)",
+    )
     p.add_argument("--rtol", type=float, default=0.0, help="relative float tolerance")
     p.set_defaults(fn=_cmd_diff)
 

@@ -1,15 +1,15 @@
 """blame -- cell-level "why" for pandas pipelines, with no code changes.
 
-    import blame
+import blame
 
-    with blame.trace():
-        orders = pd.read_csv("orders.csv")
-        ...
-        report = joined.groupby("region")["total"].sum()
+with blame.trace():
+    orders = pd.read_csv("orders.csv")
+    ...
+    report = joined.groupby("region")["total"].sum()
 
-    run = blame.last_run()
-    print(run.table())          # every step
-    print(run.why(row=2))       # which source rows produced this cell
+run = blame.last_run()
+print(run.table())          # every step
+print(run.why(row=2))       # which source rows produced this cell
 """
 
 from __future__ import annotations
@@ -23,14 +23,29 @@ from .diff import Diff
 from .query import Explanation, Run
 
 __version__ = "0.1.1"
-__all__ = ["trace", "start", "stop", "last_run", "load", "why", "forward", "diff",
-           "Run", "Explanation", "Diff"]
+__all__ = [
+    "Diff",
+    "Explanation",
+    "Run",
+    "diff",
+    "forward",
+    "last_run",
+    "load",
+    "start",
+    "stop",
+    "trace",
+    "why",
+]
 
 _LAST: Run | None = None
 
 
-def start(label: str = "", root: str | Path = ".blame", sample_rows: int | None = None,
-          compression: str | None = "none") -> None:
+def start(
+    label: str = "",
+    root: str | Path = ".blame",
+    sample_rows: int | None = None,
+    compression: str | None = "none",
+) -> None:
     """Begin recording. Every pandas operation after this call is traced."""
     _tracer.start(Store(root, sample_rows=sample_rows, compression=compression), label)
 
@@ -46,8 +61,12 @@ def stop() -> Run | None:
 
 
 @contextlib.contextmanager
-def trace(label: str = "", root: str | Path = ".blame", sample_rows: int | None = None,
-          compression: str | None = "none"):
+def trace(
+    label: str = "",
+    root: str | Path = ".blame",
+    sample_rows: int | None = None,
+    compression: str | None = "none",
+):
     """Context manager form. Yields a handle whose .run is set on exit."""
 
     class Handle:
