@@ -2,6 +2,11 @@
 
 **Cell-level "why" for pandas pipelines. No code changes.**
 
+[![CI](https://github.com/SEPURI-SAI-KRISHNA/blame/actions/workflows/ci.yml/badge.svg)](https://github.com/SEPURI-SAI-KRISHNA/blame/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/pandas-blame.svg)](https://pypi.org/project/pandas-blame/)
+[![Python](https://img.shields.io/pypi/pyversions/pandas-blame.svg)](https://pypi.org/project/pandas-blame/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/SEPURI-SAI-KRISHNA/blame/blob/main/LICENSE)
+
 Your report says `41,900` and it should say `38,400`. Today you find that out by
 adding print statements down a thirty-step pipeline until something looks wrong.
 `blame` records the pipeline as it runs, so you can point at the number instead.
@@ -20,11 +25,11 @@ pip install pandas-blame
 import blame, pandas as pd
 
 with blame.trace():
-    orders    = pd.read_csv("orders.csv")
+    orders = pd.read_csv("orders.csv")
     customers = pd.read_csv("customers.csv")
-    clean     = orders[orders.qty > 0]
-    joined    = clean.merge(customers, on="customer_id")
-    report    = joined.groupby("region", as_index=False)["total"].sum()
+    clean = orders[orders.qty > 0]
+    joined = clean.merge(customers, on="customer_id")
+    report = joined.groupby("region", as_index=False)["total"].sum()
 
 print(blame.last_run().why(row=1, col="total"))
 ```
@@ -80,6 +85,6 @@ changed results and no approximate steps ([validation](https://github.com/SEPURI
 
 Alpha, and honest about it. It works, it is tested against ground truth, and it
 has never been run on your pipeline. If it gets something wrong about a real one,
-that is the bug report worth filing. [Roadmap](https://github.com/SEPURI-SAI-KRISHNA/blame/blob/main/ROADMAP.md).
+that is the bug report worth filing. [Contributing](https://github.com/SEPURI-SAI-KRISHNA/blame/blob/main/CONTRIBUTING.md). [Roadmap](https://github.com/SEPURI-SAI-KRISHNA/blame/blob/main/ROADMAP.md).
 
 Apache-2.0.
