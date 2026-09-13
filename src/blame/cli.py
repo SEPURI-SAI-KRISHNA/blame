@@ -1,4 +1,7 @@
-"""Command line access to recorded runs: blame runs / steps / why / forward / at."""
+"""Command line access to recorded runs.
+
+blame runs / steps / why / forward / diff / at / ui
+"""
 
 from __future__ import annotations
 
