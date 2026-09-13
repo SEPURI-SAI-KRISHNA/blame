@@ -103,8 +103,20 @@ def _cmd_ui(args) -> int:
     return 0
 
 
+def _version() -> str:
+    from . import __version__
+
+    return __version__
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="blame", description=__doc__)
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"blame {_version()}",
+        help="print the installed version and exit",
+    )
     parser.add_argument("--root", default=".blame", help="trace directory (default: .blame)")
     parser.add_argument("--run", default=None, help="run id (default: most recent)")
     sub = parser.add_subparsers(dest="cmd", required=True)
