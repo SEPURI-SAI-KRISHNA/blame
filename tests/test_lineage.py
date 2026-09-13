@@ -7,6 +7,7 @@ pandas propagates it, and we check that why() returns exactly that set.
 
 import subprocess
 import sys
+import time
 
 import numpy as np
 import pandas as pd
@@ -948,3 +949,34 @@ def test_tracing_works_from_a_directory_whose_name_contains_pandas(tmp_path):
     assert out["my-pandas-work"] == out["plain"], (
         f"a directory named {'my-pandas-work'!r} silently disabled tracing: {out}"
     )
+
+
+def test_other_threads_do_not_leak_into_the_trace():
+    """The patches are global; a trace describes one pipeline.
+
+    Pandas work on an unrelated thread used to be recorded into whatever trace
+    happened to be open, putting steps into the graph that the user never ran
+    and adding source frames the pipeline never read.
+    """
+    import threading
+
+    def other():
+        time.sleep(0.05)
+        d = pd.DataFrame({"zzz_unrelated": [9] * 5})
+        for _ in range(3):
+            d = d[d.zzz_unrelated > 0]
+
+    t = threading.Thread(target=other)
+    t.start()
+    try:
+        with blame.trace() as h:
+            df = pd.DataFrame({"k": ["a", "b", "a"], "v": [1, 2, 3]})
+            f = df[df.v > 1]
+            time.sleep(0.15)  # the other thread runs inside the trace window
+            f.groupby("k", as_index=False)["v"].sum()
+    finally:
+        t.join()
+
+    ops = [s.op for s in h.run.steps]
+    assert ops == ["filter", "groupby.sum"], f"other thread leaked in: {ops}"
+    assert len(h.run.sources) == 1, f"phantom source frames: {h.run.sources}"
