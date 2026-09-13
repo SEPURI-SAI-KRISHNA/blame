@@ -6,24 +6,43 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-13
+
 ### Added
 - Continuous integration: lint, a pandas 2.0 / 2.2 / 3.0 test matrix across
-  Python 3.10–3.13, and a packaging job that installs the built wheel and
+  Python 3.10-3.13, and a packaging job that installs the built wheel and
   checks it can answer a `why` on its own.
 - A weekly scheduled CI run against unpinned pandas, so a release that breaks
   the tracer shows up in CI rather than in a bug report.
 - Issue templates, contribution guide, code of conduct, security policy.
+- `py.typed` marker. The package was already annotated throughout, but without
+  this file PEP 561 requires type checkers to ignore every one of those
+  annotations in projects that depend on it.
+- `blame --version`.
+- Packaging tests pinning the invariants that drifted: classifiers must cover
+  every Python the CI matrix tests, the `py.typed` marker must ship, and the
+  PyPI publishing action must be pinned to a commit digest.
 
 ### Changed
+- Classifiers advertise Python 3.13, which CI had been testing all along, and
+  declare `Typing :: Typed` and `Operating System :: OS Independent`.
+- Workflows declare `permissions: contents: read` explicitly, and the PyPI
+  publish step is pinned to a commit digest rather than the moving
+  `release/v1` tag.
+- `CHANGELOG.md` ships in the sdist, and PyPI links to it from the sidebar.
 - Codebase formatted with `ruff format`; `.git-blame-ignore-revs` keeps that
   commit out of `git blame`.
 
 ### Fixed
+- The `blame diff` example in the README could not run as written: it named
+  `before` and `after` without showing where they come from, and the obvious
+  reading raised `AttributeError`, because `trace()` yields a handle whose
+  `.run` is the run. Replaced with the runnable form.
+- Tests no longer fail to collect on Python 3.10, which has no stdlib
+  `tomllib`.
 - Tests no longer construct `pandas.Timedelta`, which trips a numpy 2.5
   deprecation from inside pandas 2.2. Found by running the matrix combination
   (pandas 2.2 with numpy 2) that local testing had never covered.
-- Removed the `Typing :: Typed` classifier, which claimed typed support the
-  package does not ship a `py.typed` marker for.
 
 ## [0.1.1] - 2026-09-13
 
@@ -52,6 +71,7 @@ First public release.
 - Content-addressed column store with structural sharing, keeping capture at
   about 2x wall time and 5 ms per step on a million rows.
 
-[Unreleased]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/SEPURI-SAI-KRISHNA/blame/releases/tag/v0.1.0
