@@ -1,0 +1,48 @@
+name: Performance or memory problem
+description: Capture is far slower, or uses far more memory, than the published figures
+labels: ["performance"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The published figures are about **2x wall time** and **5 ms per step** at
+        a million rows, measured by `bench/overhead.py`. If you are seeing
+        something far outside that, it is a bug worth knowing about — the cost
+        model assumes columns are shared structurally rather than copied, and a
+        pipeline that defeats that assumption is exactly what I want to see.
+  - type: textarea
+    id: numbers
+    attributes:
+      label: What you measured
+      description: Wall time or memory, traced versus untraced, and the row count.
+      placeholder: |
+        900k rows, 12 steps.
+        untraced: 1.8s
+        traced:   47s      (26x, not 2x)
+        .blame/ grew to 4.1 GB
+      render: text
+    validations: {required: true}
+  - type: textarea
+    id: pipeline
+    attributes:
+      label: The pipeline
+      description: >
+        The shape matters more than the data: how many steps, which operations,
+        how wide the frames are, and whether any column is object dtype.
+      render: python
+    validations: {required: true}
+  - type: textarea
+    id: table
+    attributes:
+      label: Output of `run.table()`
+      description: >
+        Paste it as-is. The per-step timings and shapes usually identify the
+        step responsible on their own.
+      render: text
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: "Run: `blame --version` and `python -c \"import pandas, numpy, pyarrow, sys; print(sys.version); print(pandas.__version__, numpy.__version__, pyarrow.__version__)\"`"
+      render: text
+    validations: {required: true}
