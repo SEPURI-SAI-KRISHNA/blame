@@ -26,8 +26,9 @@ def _fmt(value) -> str:
 
     if isinstance(value, np.generic):
         value = value.item()
-    if value is None or (not isinstance(value, (list, tuple, dict, set, np.ndarray))
-                         and pd.isna(value)):
+    if value is None or (
+        not isinstance(value, (list, tuple, dict, set, np.ndarray)) and pd.isna(value)
+    ):
         return "NA"
     return repr(value)
 
@@ -46,18 +47,22 @@ def _keys_for(frame, on):
         names = [on] if isinstance(on, str) else list(on)
         present = [n for n in names if n in frame.columns]
         if present:
-            values = (frame[present[0]].to_numpy().tolist() if len(present) == 1
-                      else list(frame[present].itertuples(index=False, name=None)))
-            return (values,
-                    f"column{'s' if len(present) > 1 else ''} "
-                    f"{present if len(present) > 1 else present[0]!r}")
+            values = (
+                frame[present[0]].to_numpy().tolist()
+                if len(present) == 1
+                else list(frame[present].itertuples(index=False, name=None))
+            )
+            return (
+                values,
+                f"column{'s' if len(present) > 1 else ''} "
+                f"{present if len(present) > 1 else present[0]!r}",
+            )
 
     index = frame.index
     if index.is_unique and not isinstance(index, pd.RangeIndex):
         values = index.to_numpy()
         # 0..n-1 is position wearing a disguise; say so rather than claim a key
-        if not (values.dtype.kind in "iu"
-                and np.array_equal(values, np.arange(len(frame)))):
+        if not (values.dtype.kind in "iu" and np.array_equal(values, np.arange(len(frame)))):
             return list(index), "index"
     return list(range(len(frame))), "position"
 
@@ -73,7 +78,7 @@ def _align(left, right, on=None):
     so fall back rather than pair rows wrongly: `region` keys the report but
     repeats in the customer table that fed it.
     """
-    for attempt in ([on, None] if on else [None]):
+    for attempt in [on, None] if on else [None]:
         lkeys, how = _keys_for(left, attempt)
         rkeys, _ = _keys_for(right, attempt)
         if _unique(lkeys) and _unique(rkeys):
@@ -96,13 +101,12 @@ def _ne_mask(a, b, rtol: float):
     sa, sb = pd.Series(a.to_numpy()), pd.Series(b.to_numpy())
     both_na = (sa.isna() & sb.isna()).to_numpy()
     if rtol and sa.dtype.kind in "fc" and sb.dtype.kind in "fc":
-        close = np.isclose(sa.to_numpy(), sb.to_numpy(), rtol=rtol, atol=0.0,
-                           equal_nan=True)
+        close = np.isclose(sa.to_numpy(), sb.to_numpy(), rtol=rtol, atol=0.0, equal_nan=True)
         return ~close
     try:
         ne = sa.ne(sb).to_numpy()
-    except Exception:                       # ragged objects: fall back elementwise
-        ne = np.array([_differs(x, y, rtol) for x, y in zip(sa, sb)], dtype=bool)
+    except Exception:  # ragged objects: fall back elementwise
+        ne = np.array([_differs(x, y, rtol) for x, y in zip(sa, sb, strict=True)], dtype=bool)
     return ne & ~both_na
 
 
@@ -134,9 +138,9 @@ class CellChange:
 @dataclass
 class RowChange:
     key: object
-    kind: str                       # "changed" | "added" | "removed"
+    kind: str  # "changed" | "added" | "removed"
     cells: list[CellChange] = field(default_factory=list)
-    causes: list["Cause"] = field(default_factory=list)
+    causes: list[Cause] = field(default_factory=list)
 
 
 @dataclass
@@ -173,10 +177,18 @@ def _frame_delta(left, right, on, rtol):
         for i, cols in sorted(hits.items()):
             ra, rb = a.iloc[i], b.iloc[i]
             changed[common[i]] = [CellChange(str(c), ra[c], rb[c]) for c in cols]
-    return {"added": added, "removed": removed, "changed": changed,
-            "how": how, "lpos": lpos, "rpos": rpos, "lkeys": lkeys, "rkeys": rkeys,
-            "gained": [c for c in right.columns if c not in left.columns],
-            "lost": [c for c in left.columns if c not in right.columns]}
+    return {
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "how": how,
+        "lpos": lpos,
+        "rpos": rpos,
+        "lkeys": lkeys,
+        "rkeys": rkeys,
+        "gained": [c for c in right.columns if c not in left.columns],
+        "lost": [c for c in left.columns if c not in right.columns],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +198,8 @@ def _frame_delta(left, right, on, rtol):
 
 @dataclass
 class Diff:
-    left: "object"
-    right: "object"
+    left: object
+    right: object
     label: str
     shape_before: tuple
     shape_after: tuple
@@ -212,10 +224,12 @@ class Diff:
         return [c for c in self.changes if not c.causes]
 
     def __repr__(self) -> str:
-        lines = [f"diff {self.left.run_id} -> {self.right.run_id}",
-                 f"  {self.label}: {self.shape_before[0]}x{self.shape_before[1]}"
-                 f" -> {self.shape_after[0]}x{self.shape_after[1]}"
-                 f"   (rows paired by {self.aligned_by})"]
+        lines = [
+            f"diff {self.left.run_id} -> {self.right.run_id}",
+            f"  {self.label}: {self.shape_before[0]}x{self.shape_before[1]}"
+            f" -> {self.shape_after[0]}x{self.shape_after[1]}"
+            f"   (rows paired by {self.aligned_by})",
+        ]
         if not self:
             lines.append("\n  no differences")
             return "\n".join(lines)
@@ -225,8 +239,9 @@ class Diff:
         if self.lost_columns:
             lines.append(f"  - columns {self.lost_columns}")
 
-        counts = {k: sum(1 for c in self.changes if c.kind == k)
-                  for k in ("changed", "added", "removed")}
+        counts = {
+            k: sum(1 for c in self.changes if c.kind == k) for k in ("changed", "added", "removed")
+        }
         lines.append("  " + ", ".join(f"{n} {k}" for k, n in counts.items() if n))
         lines.append("")
 
@@ -237,14 +252,18 @@ class Diff:
             for cause in change.causes[:4]:
                 lines.append(f"      caused by {cause!r}")
             if not change.causes:
-                lines.append("      no changed input row explains this "
-                             "(the pipeline itself changed, or a step is approximate)")
+                lines.append(
+                    "      no changed input row explains this "
+                    "(the pipeline itself changed, or a step is approximate)"
+                )
         if len(self.changes) > _MAX_SHOW:
             lines.append(f"  ... {len(self.changes) - _MAX_SHOW} more")
 
         lines.append("")
-        lines.append(f"  {self.explained} of {self.explained + self.unexplained} "
-                     f"differing rows traced to a changed input row")
+        lines.append(
+            f"  {self.explained} of {self.explained + self.unexplained} "
+            f"differing rows traced to a changed input row"
+        )
         for name, summary in self.source_summary.items():
             lines.append(f"    {name}: {summary}")
         return "\n".join(lines)
@@ -258,8 +277,7 @@ def _source_frames(run):
     return out
 
 
-def diff(left, right, target=None, on=None, rtol: float = 0.0,
-         explain: int = 50) -> Diff:
+def diff(left, right, target=None, on=None, rtol: float = 0.0, explain: int = 50) -> Diff:
     """Compare the same frame across two runs and attribute the differences.
 
     `explain` caps how many differing rows get lineage attribution, which costs
@@ -288,8 +306,11 @@ def diff(left, right, target=None, on=None, rtol: float = 0.0,
             bits.append(f"{len(sd['removed'])} removed")
         if sd["changed"]:
             bits.append(f"{len(sd['changed'])} changed")
-        summary[name] = ((f"{len(a)} -> {len(b)} rows, " + ", ".join(bits)) if bits
-                         else f"{len(a)} rows, unchanged") + f"  (by {sd['how']})"
+        summary[name] = (
+            (f"{len(a)} -> {len(b)} rows, " + ", ".join(bits))
+            if bits
+            else f"{len(a)} rows, unchanged"
+        ) + f"  (by {sd['how']})"
 
     changes: list[RowChange] = []
     for key, cells in delta["changed"].items():
@@ -304,16 +325,20 @@ def diff(left, right, target=None, on=None, rtol: float = 0.0,
         change.causes = _attribute(change, left, right, lfid, rfid, delta, source_delta)
         explained += bool(change.causes)
 
-    return Diff(left=left, right=right,
-                label=right.nodes[rfid].label,
-                shape_before=(len(before), before.shape[1]),
-                shape_after=(len(after), after.shape[1]),
-                aligned_by=delta["how"], changes=changes,
-                gained_columns=[str(c) for c in delta["gained"]],
-                lost_columns=[str(c) for c in delta["lost"]],
-                explained=explained,
-                unexplained=min(len(changes), explain) - explained,
-                source_summary=summary)
+    return Diff(
+        left=left,
+        right=right,
+        label=right.nodes[rfid].label,
+        shape_before=(len(before), before.shape[1]),
+        shape_after=(len(after), after.shape[1]),
+        aligned_by=delta["how"],
+        changes=changes,
+        gained_columns=[str(c) for c in delta["gained"]],
+        lost_columns=[str(c) for c in delta["lost"]],
+        explained=explained,
+        unexplained=min(len(changes), explain) - explained,
+        source_summary=summary,
+    )
 
 
 def _attribute(change, left, right, lfid, rfid, delta, source_delta) -> list[Cause]:
@@ -325,8 +350,10 @@ def _attribute(change, left, right, lfid, rfid, delta, source_delta) -> list[Cau
     causes: list[Cause] = []
     contributing: dict[str, set] = {}
 
-    for run, fid, pos_map, side in ((right, rfid, delta["rpos"], "r"),
-                                    (left, lfid, delta["lpos"], "l")):
+    for run, fid, pos_map, side in (
+        (right, rfid, delta["rpos"], "r"),
+        (left, lfid, delta["lpos"], "l"),
+    ):
         pos = pos_map.get(change.key)
         if pos is None:
             continue
@@ -341,7 +368,8 @@ def _attribute(change, left, right, lfid, rfid, delta, source_delta) -> list[Cau
                 continue
             keys = entry[2]["lkeys" if side == "l" else "rkeys"]
             contributing.setdefault(name, set()).update(
-                keys[int(r)] for r in rows if int(r) < len(keys))
+                keys[int(r)] for r in rows if int(r) < len(keys)
+            )
 
     for name, keys in contributing.items():
         sd = source_delta[name][2]

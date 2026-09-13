@@ -27,14 +27,14 @@ from . import _lineage as lin
 from ._graph import FrameNode, Step
 from ._store import Store
 
-_ACTIVE: "Tracer | None" = None
+_ACTIVE: Tracer | None = None
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 _LPOS = "__blame_lpos__"
 _RPOS = "__blame_rpos__"
 _POS = "__blame_pos__"
 
 
-def active() -> "Tracer | None":
+def active() -> Tracer | None:
     return _ACTIVE
 
 
@@ -129,10 +129,10 @@ class Tracer:
         else:
             prior = self._derived.get(id(other))
             if prior is None:
-                return                       # nothing upstream that we know about
+                return  # nothing upstream that we know about
             fid, earlier = prior[0], prior[1]
-            methods = earlier if earlier and earlier[-1] == name else earlier + [name]
-            if len(methods) > 8:             # a long internal chain tells us nothing
+            methods = earlier if earlier and earlier[-1] == name else [*earlier, name]
+            if len(methods) > 8:  # a long internal chain tells us nothing
                 methods = methods[:8]
         key = id(new)
         try:
@@ -160,11 +160,17 @@ class Tracer:
         """Insert an explicit approximate hop rather than letting an
         intermediate frame masquerade as a source."""
         name = methods[-1] if methods else "?"
-        self.warn(f"{name}: not traced, so lineage through it is approximate "
-                  f"(every row of the input is reported as a candidate)")
-        self.record(f"<untraced {name}>", [ancestor_fid], obj,
-                    lin.Unknown(len(obj), self.nodes[ancestor_fid].data.nrows),
-                    " -> ".join(methods) if len(methods) > 1 else "")
+        self.warn(
+            f"{name}: not traced, so lineage through it is approximate "
+            f"(every row of the input is reported as a candidate)"
+        )
+        self.record(
+            f"<untraced {name}>",
+            [ancestor_fid],
+            obj,
+            lin.Unknown(len(obj), self.nodes[ancestor_fid].data.nrows),
+            " -> ".join(methods) if len(methods) > 1 else "",
+        )
         return self._obj_to_fid[id(obj)]
 
     def register(self, obj, label: str, step: int | None, plan: dict | None = None) -> str:
@@ -172,7 +178,7 @@ class Tracer:
 
         frame = obj.to_frame() if isinstance(obj, pd.Series) else obj
         fid = self._new_fid()
-        self._depth += 1          # storing a frame uses pandas; do not re-trace it
+        self._depth += 1  # storing a frame uses pandas; do not re-trace it
         try:
             data = self.store.put_frame(frame, plan)
         finally:
@@ -181,8 +187,10 @@ class Tracer:
             fid=fid, label=label, data=data, step=step, columns=[str(c) for c in frame.columns]
         )
         if data.sampled:
-            self.warn(f"{label}: stored the first {data.stored_rows:,} of {data.nrows:,} rows "
-                      f"(sample_rows); lineage stays exact, materialized rows beyond that are NA")
+            self.warn(
+                f"{label}: stored the first {data.stored_rows:,} of {data.nrows:,} rows "
+                f"(sample_rows); lineage stays exact, materialized rows beyond that are NA"
+            )
         key = id(obj)
         self._obj_to_fid[key] = fid
         try:
@@ -199,7 +207,7 @@ class Tracer:
         cover, say so instead of presenting it as an input to the pipeline.
         """
         if isinstance(obj, str):
-            return obj                       # already resolved by the caller
+            return obj  # already resolved by the caller
         fid = self._live_fid(obj)
         if fid is not None:
             return fid
@@ -210,8 +218,16 @@ class Tracer:
 
     # -- recording -------------------------------------------------------
 
-    def record(self, op: str, inputs: list, output, lineage: lin.Lineage, detail: str,
-               col_map: dict | None = None, elapsed: float = 0.0) -> None:
+    def record(
+        self,
+        op: str,
+        inputs: list,
+        output,
+        lineage: lin.Lineage,
+        detail: str,
+        col_map: dict | None = None,
+        elapsed: float = 0.0,
+    ) -> None:
         t0 = time.perf_counter()
         self._depth += 1
         try:
@@ -235,10 +251,10 @@ class Tracer:
         plan: dict[str, dict] = {}
         for out_col, sources in (col_map or {}).items():
             if len(sources) != 1:
-                continue          # ambiguous (suffixed join column) -- store it
+                continue  # ambiguous (suffixed join column) -- store it
             slot, parent_col = int(sources[0][0]), sources[0][1]
             if lineage.take_for(slot) is False:
-                continue          # the operation created new values
+                continue  # the operation created new values
             plan[out_col] = {"step": idx, "slot": slot, "name": parent_col}
         if lineage.kind in ("identity", "select"):
             plan["__index__"] = {"step": idx, "slot": 0, "name": "__index__"}
@@ -314,8 +330,9 @@ def _positions_by_index(parent, out) -> np.ndarray | None:
         # a fresh frame: the label is the position
         if isinstance(pidx, pd.RangeIndex) and pidx.start == 0 and pidx.step == 1:
             take = oidx.to_numpy()
-            if take.dtype.kind in "iu" and (len(take) == 0 or
-                                            (take.min() >= 0 and take.max() < len(pidx))):
+            if take.dtype.kind in "iu" and (
+                len(take) == 0 or (take.min() >= 0 and take.max() < len(pidx))
+            ):
                 return take.astype(np.int64, copy=False)
 
         # anything derived from one by row selection stays sorted
@@ -356,12 +373,21 @@ def _positional_take(name: str, parent, args, kwargs):
 def _replay_is_safe(name: str, args, kwargs) -> bool:
     """Can this operation tolerate one extra column without changing what it
     selects? Anything that inspects every column cannot."""
-    if name in ("sort_values", "sort_index", "nlargest", "nsmallest", "take",
-                "query", "truncate", "reindex", "drop"):
+    if name in (
+        "sort_values",
+        "sort_index",
+        "nlargest",
+        "nsmallest",
+        "take",
+        "query",
+        "truncate",
+        "reindex",
+        "drop",
+    ):
         return True
-    if name == "dropna":       # `all` and `thresh` count the columns
+    if name == "dropna":  # `all` and `thresh` count the columns
         return kwargs.get("how", "any") != "all" and kwargs.get("thresh") is None
-    if name == "drop_duplicates":   # without a subset, the tag makes every row unique
+    if name == "drop_duplicates":  # without a subset, the tag makes every row unique
         return kwargs.get("subset", args[0] if args else None) is not None
     return False
 
@@ -492,7 +518,7 @@ def _user_call() -> bool:
     lookup, far cheaper than the capture it guards.
     """
     try:
-        caller = sys._getframe(2)      # 0 this, 1 the wrapper, 2 whoever called it
+        caller = sys._getframe(2)  # 0 this, 1 the wrapper, 2 whoever called it
     except ValueError:
         return True
     name = caller.f_code.co_filename
@@ -511,10 +537,11 @@ def _h_rows(t, name, parent, out, args, kwargs, elapsed, orig=None):
         return
     lineage = _row_lineage(parent, out, name, args, kwargs, orig)
     if lineage.approximate:
-        t.warn(f"{name}: could not identify rows exactly "
-               f"(duplicate index and no safe replay); lineage is approximate")
-    t.record(name, [parent], out, lineage, _detail(args, kwargs),
-             _column_map(parent, out), elapsed)
+        t.warn(
+            f"{name}: could not identify rows exactly "
+            f"(duplicate index and no safe replay); lineage is approximate"
+        )
+    t.record(name, [parent], out, lineage, _detail(args, kwargs), _column_map(parent, out), elapsed)
 
 
 def _h_getitem(t, name, parent, out, args, kwargs, elapsed, orig=None):
@@ -527,23 +554,46 @@ def _h_getitem(t, name, parent, out, args, kwargs, elapsed, orig=None):
         mask = np.asarray(key)
         if mask.dtype == bool and len(mask) == len(parent):
             take = np.flatnonzero(mask).astype(np.int64)
-            t.record("filter", [parent], out, lin.Select(take), _detail(args, kwargs),
-                     _column_map(parent, out), elapsed)
+            t.record(
+                "filter",
+                [parent],
+                out,
+                lin.Select(take),
+                _detail(args, kwargs),
+                _column_map(parent, out),
+                elapsed,
+            )
             return
     if isinstance(key, slice):
         bounds = (key.start, key.stop, key.step)
-        if all(b is None or (isinstance(b, (int, np.integer)) and not isinstance(b, bool))
-               for b in bounds):
+        if all(
+            b is None or (isinstance(b, (int, np.integer)) and not isinstance(b, bool))
+            for b in bounds
+        ):
             take = np.arange(len(parent), dtype=np.int64)[key]
-            t.record("slice", [parent], out, lin.Select(take), _detail(args, kwargs),
-                     _column_map(parent, out), elapsed)
+            t.record(
+                "slice",
+                [parent],
+                out,
+                lin.Select(take),
+                _detail(args, kwargs),
+                _column_map(parent, out),
+                elapsed,
+            )
             return
         # a label slice (dates, strings): let the index map it instead
         _h_rows(t, "slice", parent, out, args, kwargs, elapsed, orig)
         return
     if len(out) == len(parent):
-        t.record("select", [parent], out, lin.Identity(len(parent)), _detail(args, kwargs),
-                 _column_map(parent, out), elapsed)
+        t.record(
+            "select",
+            [parent],
+            out,
+            lin.Identity(len(parent)),
+            _detail(args, kwargs),
+            _column_map(parent, out),
+            elapsed,
+        )
         return
     _h_rows(t, name, parent, out, args, kwargs, elapsed, orig)
 
@@ -555,11 +605,18 @@ def _h_identity(t, name, parent, out, args, kwargs, elapsed, orig=None):
     if len(out) != len(parent):
         _h_rows(t, name, parent, out, args, kwargs, elapsed, orig)
         return
-    t.record(name, [parent], out, lin.Identity(len(parent)), _detail(args, kwargs),
-             _column_map(parent, out), elapsed)
+    t.record(
+        name,
+        [parent],
+        out,
+        lin.Identity(len(parent)),
+        _detail(args, kwargs),
+        _column_map(parent, out),
+        elapsed,
+    )
 
 
-def _membership(keys, out_index, n_in, all_rows_key=None) -> "lin.Group | None":
+def _membership(keys, out_index, n_in, all_rows_key=None) -> lin.Group | None:
     """CSR group membership: which parent rows land in each output row.
 
     Every reshape that widens a table -- pivot, pivot_table, unstack -- moves
@@ -579,7 +636,7 @@ def _membership(keys, out_index, n_in, all_rows_key=None) -> "lin.Group | None":
     chunks = []
     for i, key in enumerate(out_index):
         if all_rows_key is not None and key == all_rows_key:
-            found = every                     # a margins total spans everything
+            found = every  # a margins total spans everything
         else:
             found = groups.get(key)
             if found is None and isinstance(key, tuple) and len(key) == 1:
@@ -588,7 +645,7 @@ def _membership(keys, out_index, n_in, all_rows_key=None) -> "lin.Group | None":
         chunks.append(found)
         offsets[i + 1] = offsets[i] + len(found)
     if not any(len(c) for c in chunks):
-        return None                       # nothing matched: we read the keys wrong
+        return None  # nothing matched: we read the keys wrong
     indices = np.concatenate(chunks) if chunks else np.empty(0, dtype=np.int64)
     return lin.Group(offsets, indices, n_in)
 
@@ -598,7 +655,7 @@ def _reshape_keys(parent, kwargs, args):
     index = kwargs.get("index")
     if index is None and args:
         index = args[0]
-    if index is None:              # omitted: pivot uses the frame's own index
+    if index is None:  # omitted: pivot uses the frame's own index
         return parent.index.to_numpy()
     names = [index] if isinstance(index, str) else list(index)
     if not all(n in getattr(parent, "columns", []) for n in names):
@@ -626,8 +683,10 @@ def _h_reshape(t, name, parent, out, args, kwargs, elapsed, orig=None):
         lineage = None
 
     if lineage is None:
-        t.warn(f"{name}: could not read the reshape keys; "
-               f"lineage is approximate (every input row is a candidate)")
+        t.warn(
+            f"{name}: could not read the reshape keys; "
+            f"lineage is approximate (every input row is a candidate)"
+        )
         lineage = lin.Unknown(len(out), len(parent))
     t.record(name, [parent], out, lineage, _detail(args, kwargs), {}, elapsed)
 
@@ -642,8 +701,7 @@ def _h_melt(t, name, parent, out, args, kwargs, elapsed, orig=None):
         take = np.tile(np.arange(n, dtype=np.int64), len(out) // n)
         lineage = lin.Select(take)
     else:
-        t.warn(f"{name}: output is not a whole multiple of the input; "
-               f"lineage is approximate")
+        t.warn(f"{name}: output is not a whole multiple of the input; lineage is approximate")
         lineage = lin.Unknown(len(out), n)
     t.record(name, [parent], out, lineage, _detail(args, kwargs), {}, elapsed)
 
@@ -689,14 +747,18 @@ def _merge_factory(orig, name):
             except Exception as exc:
                 # the position-tagged merge did not work here; fall back to the
                 # plain one and say that this join is not in the graph
-                t.warn(f"merge: could not carry row positions through "
-                       f"({type(exc).__name__}: {exc}); this join is untraced")
+                t.warn(
+                    f"merge: could not carry row positions through "
+                    f"({type(exc).__name__}: {exc}); this join is untraced"
+                )
                 return orig(left, right, *args, **kwargs)
             finally:
                 elapsed = time.perf_counter() - start
             try:
-                lineage = lin.Join(np.nan_to_num(ltake, nan=lin.MISSING).astype(np.int64),
-                                   np.nan_to_num(rtake, nan=lin.MISSING).astype(np.int64))
+                lineage = lin.Join(
+                    np.nan_to_num(ltake, nan=lin.MISSING).astype(np.int64),
+                    np.nan_to_num(rtake, nan=lin.MISSING).astype(np.int64),
+                )
                 cmap = {}
                 lcols = {str(c) for c in left.columns}
                 rcols = {str(c) for c in right.columns}
@@ -735,13 +797,18 @@ def _concat_factory(orig, name):
                 elapsed = time.perf_counter() - start
             try:
                 axis = kwargs.get("axis", args[0] if args else 0)
-                if axis in (0, "index") and all(isinstance(o, (pd.DataFrame, pd.Series)) for o in items):
+                if axis in (0, "index") and all(
+                    isinstance(o, (pd.DataFrame, pd.Series)) for o in items
+                ):
                     lineage = lin.Concat([len(o) for o in items])
                     cmap = {}
                     for c in getattr(out, "columns", []):
                         s = str(c)
-                        cmap[s] = [[str(i), s] for i, o in enumerate(items)
-                                   if s in {str(x) for x in getattr(o, "columns", [])}]
+                        cmap[s] = [
+                            [str(i), s]
+                            for i, o in enumerate(items)
+                            if s in {str(x) for x in getattr(o, "columns", [])}
+                        ]
                     t.record("concat", items, out, lineage, _detail(args, kwargs), cmap, elapsed)
             except Exception as exc:
                 t.warn(f"concat: lineage capture failed ({type(exc).__name__}: {exc})")
@@ -861,8 +928,7 @@ def _agg_factory(orig, name):
                 lineage = lin.Group(offsets, indices, len(parent))
                 label = f"groupby.{name}"
                 detail = self.__dict__.get("_blame_keys", "") or _detail(args, kwargs)
-                t.record(label, [parent], out, lineage, detail,
-                         _column_map(parent, out), elapsed)
+                t.record(label, [parent], out, lineage, detail, _column_map(parent, out), elapsed)
             except Exception as exc:
                 t.warn(f"groupby.{name}: lineage capture failed ({type(exc).__name__}: {exc})")
         finally:
@@ -872,8 +938,18 @@ def _agg_factory(orig, name):
     return wrapper
 
 
-_FINALIZE_NOISE = {"__finalize__", "wrapper", "f", "new_func", "_constructor",
-                   "__init__", "__call__", "pipe", "apply", "_apply"}
+_FINALIZE_NOISE = {
+    "__finalize__",
+    "wrapper",
+    "f",
+    "new_func",
+    "_constructor",
+    "__init__",
+    "__call__",
+    "pipe",
+    "apply",
+    "_apply",
+}
 
 
 def _derive_method(method) -> str:
@@ -891,8 +967,11 @@ def _derive_method(method) -> str:
         if frame is None:
             break
         code = frame.f_code
-        if "pandas" in code.co_filename and not code.co_name.startswith("_") \
-                and code.co_name not in _FINALIZE_NOISE:
+        if (
+            "pandas" in code.co_filename
+            and not code.co_name.startswith("_")
+            and code.co_name not in _FINALIZE_NOISE
+        ):
             found = code.co_name
         frame = frame.f_back
     return found or "?"
@@ -931,14 +1010,65 @@ def _reader_factory(orig, name):
     return wrapper
 
 
-_ROW_OPS = ["query", "dropna", "drop_duplicates", "sample", "head", "tail", "take",
-            "nlargest", "nsmallest", "sort_values", "sort_index", "drop", "reindex",
-            "filter", "first", "last", "truncate"]
-_ID_OPS = ["assign", "rename", "astype", "fillna", "copy", "round", "clip", "replace",
-           "reset_index", "set_index", "eval", "ffill", "bfill", "abs", "rank",
-           "add_prefix", "add_suffix", "sort_index_", "where", "mask"]
-_AGG_OPS = ["agg", "aggregate", "sum", "mean", "count", "size", "min", "max", "median",
-            "std", "var", "nunique", "first", "last", "prod", "sem"]
+_ROW_OPS = [
+    "query",
+    "dropna",
+    "drop_duplicates",
+    "sample",
+    "head",
+    "tail",
+    "take",
+    "nlargest",
+    "nsmallest",
+    "sort_values",
+    "sort_index",
+    "drop",
+    "reindex",
+    "filter",
+    "first",
+    "last",
+    "truncate",
+]
+_ID_OPS = [
+    "assign",
+    "rename",
+    "astype",
+    "fillna",
+    "copy",
+    "round",
+    "clip",
+    "replace",
+    "reset_index",
+    "set_index",
+    "eval",
+    "ffill",
+    "bfill",
+    "abs",
+    "rank",
+    "add_prefix",
+    "add_suffix",
+    "sort_index_",
+    "where",
+    "mask",
+]
+_AGG_OPS = [
+    "agg",
+    "aggregate",
+    "sum",
+    "mean",
+    "count",
+    "size",
+    "min",
+    "max",
+    "median",
+    "std",
+    "var",
+    "nunique",
+    "first",
+    "last",
+    "prod",
+    "sem",
+]
 _READERS = ["read_csv", "read_parquet", "read_json", "read_excel", "read_feather"]
 # not data operations: whatever frames they build inside are not pipeline steps
 _OPAQUE_OPS = ["hist", "boxplot", "info", "to_string", "_repr_html_", "__repr__"]
@@ -1016,11 +1146,11 @@ def start(store: Store, label: str = "") -> Tracer:
     return _ACTIVE
 
 
-def stop() -> "Tracer | None":
+def stop() -> Tracer | None:
     global _ACTIVE
     t = _ACTIVE
     _ACTIVE = None
-    uninstall()          # outside a trace, pandas is exactly as we found it
+    uninstall()  # outside a trace, pandas is exactly as we found it
     if t is not None:
         t.flush()
         for msg in t.warnings:

@@ -19,7 +19,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Software Development :: Debuggers",
-    "Typing :: Typed",
 ]
 
 [project.urls]
@@ -43,3 +42,36 @@ artifacts = ["src/blame/_ui/*.html"]   # the UI page, served by `blame ui`
 
 [tool.hatch.build.targets.sdist]
 include = ["src/blame", "tests", "examples", "bench", "docs", "README.md", "ROADMAP.md", "LICENSE"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "BLE"]
+ignore = [
+    "E501",    # long lines are a judgement call, not an error
+    "RUF015",  # `[x for x in y][0]` fails loudly on empty; `next()` needs a default
+    "SIM105",  # contextlib.suppress hides which exception is being tolerated
+    "SIM108",  # a ternary is not always clearer than an if
+]
+
+[tool.ruff.lint.per-file-ignores]
+# The tracer's second rule is that it never raises: if lineage cannot be derived
+# it degrades and keeps going, because a debugging tool must not break the
+# pipeline it is watching. Broad excepts there are the design, not an oversight.
+"src/blame/_tracer.py" = ["BLE001"]
+"src/blame/ui.py" = ["BLE001"]
+"src/blame/diff.py" = ["BLE001"]
+"src/blame/query.py" = ["BLE001"]
+"tests/*" = ["F841"]
+"bench/*" = ["B023"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+filterwarnings = [
+    "error::DeprecationWarning",
+    "error::FutureWarning",
+    "default::UserWarning",
+]
