@@ -7,6 +7,16 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Fixed
+- Pandas operations running on *other* threads were recorded into whatever
+  trace happened to be open, putting steps into the graph that the pipeline
+  never ran and adding source frames it never read. The patches are global, so
+  every thread reached them; the tracer now ignores work arriving from any
+  thread other than the one that opened the trace. Affects any program using
+  pandas on more than one thread -- a request handler, a `ThreadPoolExecutor`,
+  joblib or Dask with a threading backend.
+  ([#5](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/5))
+
+### Fixed
 - Tracing silently recorded nothing when the traced code lived in a path
   containing the string `pandas` -- `~/pandas-tutorial/`, `~/pandas_work/`, an
   unpacked `pandas_blame` sdist. Stack frames were attributed to pandas by

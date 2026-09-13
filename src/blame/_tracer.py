@@ -15,6 +15,7 @@ import functools
 import inspect
 import os
 import sys
+import threading
 import time
 import uuid
 import warnings
@@ -52,6 +53,20 @@ _POS = "__blame_pos__"
 
 def active() -> Tracer | None:
     return _ACTIVE
+
+
+def _active_here() -> Tracer | None:
+    """The running tracer, but only for the thread that opened it.
+
+    The patches are global, so a pandas call on an unrelated thread reaches
+    them too. Recording it would put operations the user never ran into the
+    pipeline, and add source frames it never read. Other threads see no active
+    tracer and pass straight through to pandas.
+    """
+    t = _ACTIVE
+    if t is None or t.thread != threading.get_ident():
+        return None
+    return t
 
 
 def _caller_loc() -> str:
@@ -115,6 +130,9 @@ class Tracer:
         self._derived: dict[int, tuple] = {}
         self._depth = 0
         self._n = 0
+        # Patching pandas is process-wide, but a trace describes one pipeline.
+        # Work arriving from any other thread is somebody else's and is ignored.
+        self.thread = threading.get_ident()
         self.started = time.time()
         self.capture_seconds = 0.0
 
@@ -500,7 +518,7 @@ def _simple(handler):
 
     def factory(orig, name):
         def wrapper(self, *args, **kwargs):
-            t = _ACTIVE
+            t = _active_here()
             if t is None or t._depth > 0 or not _user_call():
                 return orig(self, *args, **kwargs)
             # the guard is held across lineage derivation too: deriving
@@ -738,7 +756,7 @@ def _merge_factory(orig, name):
     """Joins get exact lineage by carrying hidden position columns through."""
 
     def wrapper(left, right=None, *args, **kwargs):
-        t = _ACTIVE
+        t = _active_here()
         if t is None or t._depth > 0 or not _user_call() or right is None:
             return orig(left, right, *args, **kwargs) if right is not None else orig(left, **kwargs)
         import pandas as pd
@@ -798,7 +816,7 @@ def _merge_factory(orig, name):
 
 def _concat_factory(orig, name):
     def wrapper(objs, *args, **kwargs):
-        t = _ACTIVE
+        t = _active_here()
         if t is None or t._depth > 0 or not _user_call():
             return orig(objs, *args, **kwargs)
         import pandas as pd
@@ -840,7 +858,7 @@ def _guard_factory(orig, name):
     business, not steps in the user's pipeline. Run them with tracing off."""
 
     def wrapper(self, *args, **kwargs):
-        t = _ACTIVE
+        t = _active_here()
         if t is None:
             return orig(self, *args, **kwargs)
         t._depth += 1
@@ -854,7 +872,7 @@ def _guard_factory(orig, name):
 
 def _groupby_factory(orig, name):
     def wrapper(self, *args, **kwargs):
-        t = _ACTIVE
+        t = _active_here()
         if t is None:
             return orig(self, *args, **kwargs)
         t._depth += 1
@@ -876,7 +894,7 @@ def _gb_getitem_factory(orig, name):
     """df.groupby(k)["col"] returns a new GroupBy; carry the parent across."""
 
     def wrapper(self, *args, **kwargs):
-        t = _ACTIVE
+        t = _active_here()
         if t is None:
             return orig(self, *args, **kwargs)
         t._depth += 1
@@ -913,7 +931,7 @@ def _group_keys(gb, out) -> list:
 
 def _agg_factory(orig, name):
     def wrapper(self, *args, **kwargs):
-        t = _ACTIVE
+        t = _active_here()
         if t is None or t._depth > 0 or not _user_call():
             return orig(self, *args, **kwargs)
         # held across the whole body: reading the group keys back off the
@@ -999,7 +1017,7 @@ def _finalize_factory(orig, name):
 
     def wrapper(self, other, method=None, **kwargs):
         result = orig(self, other, method=method, **kwargs)
-        t = _ACTIVE
+        t = _active_here()
         if t is not None and t._depth == 0 and other is not self:
             try:
                 if _traceable(other) and _traceable(result):
@@ -1014,7 +1032,7 @@ def _finalize_factory(orig, name):
 def _reader_factory(orig, name):
     def wrapper(*args, **kwargs):
         out = orig(*args, **kwargs)
-        t = _ACTIVE
+        t = _active_here()
         if t is not None and t._depth == 0 and _traceable(out):
             try:
                 src = _short(args[0], 60) if args else ""
