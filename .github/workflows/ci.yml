@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Monday morning: a tracer that monkeypatches pandas should hear about a
+    # new pandas release from CI, not from a user's bug report.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uvx ruff check --output-format=github .
+      - run: uvx ruff format --check --diff .
+
+  test:
+    name: pandas ${{ matrix.pandas }} / py ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Only combinations that can actually exist: pandas 2.0 predates
+        # numpy 2, and pandas 3.0 requires Python 3.11 or newer.
+        include:
+          - {python: "3.10", pandas: "2.0.3", extra: "numpy<2"}
+          - {python: "3.11", pandas: "2.0.3", extra: "numpy<2"}
+          - {python: "3.10", pandas: "2.2.3", extra: ""}
+          - {python: "3.12", pandas: "2.2.3", extra: ""}
+          - {python: "3.11", pandas: "3.0.5", extra: ""}
+          - {python: "3.12", pandas: "3.0.5", extra: ""}
+          - {python: "3.13", pandas: "3.0.5", extra: ""}
+          # Unpinned: catches a new pandas release before users do.
+          - {python: "3.12", pandas: "", extra: ""}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: |
+          uv pip install --system -e ".[dev]" matplotlib
+          if [ -n "${{ matrix.pandas }}" ]; then
+            uv pip install --system "pandas==${{ matrix.pandas }}"
+          fi
+          if [ -n "${{ matrix.extra }}" ]; then
+            uv pip install --system "${{ matrix.extra }}"
+          fi
+      - name: Versions under test
+        run: uv run --no-project python -c "import pandas, numpy, pyarrow, sys; print(sys.version); print('pandas', pandas.__version__, '| numpy', numpy.__version__, '| pyarrow', pyarrow.__version__)"
+      - name: Test
+        env:
+          MPLBACKEND: Agg
+        run: python -m pytest
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - run: uvx twine check --strict dist/*
+      - name: The wheel must work on its own
+        run: |
+          uv venv /tmp/wheelcheck
+          VIRTUAL_ENV=/tmp/wheelcheck uv pip install dist/*.whl
+          /tmp/wheelcheck/bin/python -c "
+          import blame, pandas as pd
+          df = pd.DataFrame({'a': [1, 2, 3, 4], 'b': [10.0, 20, 30, 40]})
+          with blame.trace(root='/tmp/ci-blame') as h:
+              kept = df[df.a > 1]
+              out = kept.groupby('a', as_index=False)['b'].sum()
+          rows = h.run.why(row=0, target=out).sources[h.run.sources[0]]
+          assert rows.tolist() == [1], rows
+          from blame.ui import _ASSET
+          assert _ASSET.exists(), 'the UI page is missing from the wheel'
+          print('wheel ok')
+          "
+          /tmp/wheelcheck/bin/blame --root /tmp/ci-blame steps
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
