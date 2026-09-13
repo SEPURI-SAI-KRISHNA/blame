@@ -1,0 +1,9 @@
+# Revisions to skip when running `git blame`, so a bulk reformat does not
+# claim authorship of every line it touched.
+#
+# Enable locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# GitHub honours this file automatically.
+
+# "Apply ruff format across the codebase" -- add the SHA after committing it.
