@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "blame contributors", email = "sepurisaikrishna55@gmail.com" }]
+authors = [{ name = "blame contributors" }]
 keywords = ["pandas", "lineage", "provenance", "debugging", "dataframe", "data-quality"]
 dependencies = ["pandas>=2.0", "pyarrow>=14", "numpy>=1.24"]
 classifiers = [
@@ -23,9 +23,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/USERNAME/blame"
-Source = "https://github.com/USERNAME/blame"
-Issues = "https://github.com/USERNAME/blame/issues"
+Homepage = "https://github.com/SEPURI-SAI-KRISHNA/blame"
+Source = "https://github.com/SEPURI-SAI-KRISHNA/blame"
+Issues = "https://github.com/SEPURI-SAI-KRISHNA/blame/issues"
 
 [project.scripts]
 blame = "blame.cli:main"
