@@ -7,10 +7,15 @@ is a 404 for everyone arriving from `pip install`.
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-import tomllib
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # tomllib landed in 3.11; the package itself still supports 3.10
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
