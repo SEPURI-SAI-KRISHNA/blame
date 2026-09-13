@@ -8,8 +8,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
       - run: uv build
       - run: uvx twine check --strict dist/*
       - name: The tag must match the version being published
@@ -17,7 +17,7 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(ls dist/*.tar.gz | sed -E 's/.*pandas_blame-(.+)\.tar\.gz/\1/')
           test "$TAG" = "$PKG" || { echo "tag $TAG != package $PKG"; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -29,7 +29,7 @@ jobs:
     permissions:
       id-token: write        # trusted publishing: no API token stored anywhere
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
