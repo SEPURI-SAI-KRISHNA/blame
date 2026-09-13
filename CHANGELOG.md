@@ -21,14 +21,16 @@ Notable changes to `pandas-blame`. Format follows
 - `blame --version`.
 - Packaging tests pinning the invariants that drifted: classifiers must cover
   every Python the CI matrix tests, the `py.typed` marker must ship, and the
-  PyPI publishing action must be pinned to a commit digest.
+  PyPI publishing action must be pinned to an exact release tag.
 
 ### Changed
 - Classifiers advertise Python 3.13, which CI had been testing all along, and
   declare `Typing :: Typed` and `Operating System :: OS Independent`.
 - Workflows declare `permissions: contents: read` explicitly, and the PyPI
-  publish step is pinned to a commit digest rather than the moving
-  `release/v1` tag.
+  publish step is pinned to the exact release tag `v1.14.2` rather than the
+  moving `release/v1`. Not a commit digest: that action runs a container image
+  tagged with the literal ref, and only release tags are published, so a SHA
+  fails to pull.
 - `CHANGELOG.md` ships in the sdist, and PyPI links to it from the sidebar.
 - Codebase formatted with `ruff format`; `.git-blame-ignore-revs` keeps that
   commit out of `git blame`.

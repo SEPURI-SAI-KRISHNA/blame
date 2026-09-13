@@ -36,6 +36,9 @@ jobs:
         with:
           name: dist
           path: dist/
-      # Pinned to a digest: this step holds the OIDC identity that can publish
-      # to PyPI, so it must not follow a moving tag.
-      - uses: pypa/gh-action-pypi-publish@a892a5a61159132606e93a2fa6f4358831b04d26  # v1.14.2
+      # Pinned to an exact release tag, not a digest. This action runs a Docker
+      # container pulled from ghcr.io/pypa/gh-action-pypi-publish:<this ref>,
+      # and only release tags are published there -- a commit SHA gives
+      # "manifest unknown". So an exact tag is the tightest pin available, and
+      # it still avoids the moving release/v1.
+      - uses: pypa/gh-action-pypi-publish@v1.14.2

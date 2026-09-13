@@ -98,14 +98,19 @@ def test_classifiers_cover_every_python_ci_tests():
     )
 
 
-def test_publishing_action_is_pinned_to_a_digest():
-    """That step carries the OIDC identity allowed to publish to PyPI.
-    A moving tag there means an upstream compromise reaches the release."""
+def test_publishing_action_is_pinned_to_an_exact_version():
+    """That step carries the OIDC identity allowed to publish to PyPI, so it
+    must not follow a moving tag like `release/v1`.
+
+    It must not be pinned to a commit SHA either: the action runs a container
+    from ghcr.io/pypa/gh-action-pypi-publish tagged with this exact ref, and
+    only release tags exist there. A SHA fails with "manifest unknown".
+    """
     release = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     for line in release.splitlines():
         if "gh-action-pypi-publish@" in line:
             ref = line.split("@", 1)[1].split()[0]
-            assert re.fullmatch(r"[0-9a-f]{40}", ref), f"not a commit digest: {ref}"
+            assert re.fullmatch(r"v\d+\.\d+\.\d+", ref), f"not an exact release tag: {ref}"
             break
     else:
         raise AssertionError("release.yml no longer publishes to PyPI")
