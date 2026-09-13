@@ -45,7 +45,11 @@ packages = ["src/blame"]
 artifacts = ["src/blame/_ui/*.html"]   # the UI page, served by `blame ui`
 
 [tool.hatch.build.targets.sdist]
-include = ["src/blame", "tests", "examples", "bench", "docs", "README.md", "ROADMAP.md", "CHANGELOG.md", "LICENSE"]
+include = [
+    "src/blame", "tests", "examples", "bench", "docs",
+    "README.md", "ROADMAP.md", "CHANGELOG.md", "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md", "SECURITY.md", "LICENSE",
+]
 
 [tool.ruff]
 line-length = 100

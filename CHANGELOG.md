@@ -16,6 +16,14 @@ Notable changes to `pandas-blame`. Format follows
   no warning: the pipeline ran normally and the lineage was simply absent.
   Affects 0.1.0 through 0.1.2. ([#1](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/1))
 
+### Changed
+- The sdist ships `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and `SECURITY.md`,
+  which the README links to, and the two tests that read `.github/workflows/`
+  now skip outside a source checkout instead of failing. The suite could not
+  pass when run from an unpacked sdist, which is how downstream packagers
+  (Debian, conda-forge, Homebrew, Nix) run it during a build.
+  ([#2](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/2))
+
 ## [0.1.2] - 2026-09-13
 
 ### Added

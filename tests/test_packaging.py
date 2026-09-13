@@ -23,6 +23,11 @@ README = ROOT / "README.md"
 MD_IMAGE = re.compile(r"!\[[^\]]*\]\((?!https?://)([^)]+)\)")
 MD_LINK = re.compile(r"(?<!!)\[[^\]]*\]\((?!https?://|#)([^)]+)\)")
 
+# The sdist deliberately ships no .github/. These two checks are about the
+# repository, not the package, so they skip rather than fail when the suite
+# is run from an unpacked sdist -- which is how downstream packagers run it.
+repo_only = pytest.mark.skipif(not (ROOT / ".github").is_dir(), reason="not a source checkout")
+
 
 def test_readme_has_no_relative_paths():
     text = README.read_text()
@@ -80,6 +85,7 @@ def test_py_typed_marker_ships():
     assert (ROOT / "src" / "blame" / "py.typed").exists()
 
 
+@repo_only
 def test_classifiers_cover_every_python_ci_tests():
     """The matrix is the truth about what is supported; the classifiers are
     what PyPI shows. They drifted once -- CI proved 3.13 while PyPI said 3.12.
@@ -98,6 +104,7 @@ def test_classifiers_cover_every_python_ci_tests():
     )
 
 
+@repo_only
 def test_publishing_action_is_pinned_to_an_exact_version():
     """That step carries the OIDC identity allowed to publish to PyPI, so it
     must not follow a moving tag like `release/v1`.
