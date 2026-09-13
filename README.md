@@ -60,7 +60,12 @@ blame diff     # what changed since the last run, and which input row did it
 `blame diff` is the one that earns its keep in a test suite:
 
 ```python
-assert not before.diff(after, on="order_id").unexplained_rows()
+with blame.trace() as before:  # yesterday's run
+    report = build_report()
+with blame.trace() as after:  # today's, after the data landed
+    report = build_report()
+
+assert not before.run.diff(after.run, on="order_id").unexplained_rows()
 ```
 
 Inputs that did not move should not produce outputs that did. When they do,
