@@ -18,8 +18,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           enable-cache: true
       - run: uvx ruff check --output-format=github .
@@ -44,8 +44,8 @@ jobs:
           # Unpinned: catches a new pandas release before users do.
           - {python: "3.12", pandas: "", extra: ""}
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
         with:
           enable-cache: true
 
@@ -74,8 +74,8 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
       - run: uv build
       - run: uvx twine check --strict dist/*
 
@@ -102,7 +102,7 @@ jobs:
           PY
           /tmp/wheelcheck/bin/blame --root /tmp/ci-blame steps
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.1
         with:
           name: dist
           path: dist/
