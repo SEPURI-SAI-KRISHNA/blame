@@ -1,0 +1,34 @@
+name: Documentation problem
+description: Something in the README or docs/ is wrong, misleading, or missing
+labels: ["documentation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Claims about accuracy and cost are the ones worth holding to account.
+        If `docs/accuracy.md` says an operation is exact and it is not, that is
+        a documentation bug *and* probably a real one — please file it as
+        "Wrong or missing lineage" instead.
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      placeholder: "README.md, the `blame diff` example"
+    validations: {required: true}
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong
+      description: >
+        Quote the text if you can. "The example does not run" is a good report;
+        the snippet you actually pasted is a better one.
+    validations: {required: true}
+  - type: checkboxes
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - label: An example does not run as written
+        - label: A stated claim is untrue
+        - label: Something is missing or unexplained
+        - label: A link is broken

@@ -8,6 +8,19 @@ body:
         This is the report I most want. `blame` has only ever been run on its
         own tests and the pandas documentation tutorials — if it gets something
         wrong about a real pipeline, that is the interesting case.
+
+        **A silent wrong answer matters more than a crash.** Every bug found so
+        far has been one: no exception, no warning, just lineage that was absent
+        or invented. If something looks merely odd, it is still worth reporting.
+  - type: checkboxes
+    id: prechecks
+    attributes:
+      label: Before reporting
+      options:
+        - label: I searched [existing issues](https://github.com/SEPURI-SAI-KRISHNA/blame/issues?q=is%3Aissue) for this
+          required: true
+        - label: I am on the latest release (`blame --version` against [PyPI](https://pypi.org/project/pandas-blame/))
+          required: true
   - type: textarea
     id: what
     attributes:
@@ -38,8 +51,49 @@ body:
     id: steps
     attributes:
       label: Output of `run.table()`
-      description: The operations blame recorded. Paste it as-is.
+      description: >
+        The operations blame recorded. Paste it as-is — a step that is missing,
+        or one that appears twice, is often the whole answer.
       render: text
+  - type: dropdown
+    id: environment
+    attributes:
+      label: How was the code running?
+      description: >
+        Asked because every bug found so far has depended on this. Tracing
+        inspects the call stack to tell your code from pandas' internals, and
+        what that stack looks like differs between a script, a notebook and a
+        worker thread.
+      options:
+        - A .py script
+        - A Jupyter or IPython notebook
+        - An interactive REPL
+        - Inside pytest
+        - A web app, task queue, or other long-running service
+        - Something else (described above)
+    validations: {required: true}
+  - type: dropdown
+    id: threads
+    attributes:
+      label: Was anything else using pandas at the same time?
+      description: >
+        Other threads, a ThreadPoolExecutor, joblib or Dask with a threading
+        backend. Say "not sure" if you do not know — that is a useful answer.
+      options:
+        - "No, single-threaded"
+        - "Yes, other threads were using pandas"
+        - Not sure
+    validations: {required: true}
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Windows (WSL)
+    validations: {required: true}
   - type: textarea
     id: versions
     attributes:
