@@ -29,6 +29,22 @@ from ._store import Store
 
 _ACTIVE: Tracer | None = None
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _pandas_dir() -> str:
+    """Where pandas itself is installed.
+
+    Frames are attributed to pandas by comparing against this directory, never
+    by looking for "pandas" in the path: a user working in ~/pandas-tutorial,
+    or in an unpacked pandas_blame sdist, would have every operation silently
+    attributed to pandas internals and nothing would be recorded at all.
+    """
+    import pandas
+
+    return os.path.dirname(os.path.abspath(pandas.__file__))
+
+
+_PANDAS_DIR = _pandas_dir()
 _LPOS = "__blame_lpos__"
 _RPOS = "__blame_rpos__"
 _POS = "__blame_pos__"
@@ -42,7 +58,7 @@ def _caller_loc() -> str:
     frame = inspect.currentframe()
     while frame is not None:
         fname = frame.f_code.co_filename
-        if not fname.startswith(_PKG_DIR) and "pandas" not in fname:
+        if not fname.startswith((_PKG_DIR, _PANDAS_DIR)):
             return f"{Path(fname).name}:{frame.f_lineno}"
         frame = frame.f_back
     return ""
@@ -53,7 +69,7 @@ def _guess_name(obj) -> str | None:
     frame = inspect.currentframe()
     while frame is not None:
         fname = frame.f_code.co_filename
-        if not fname.startswith(_PKG_DIR) and "pandas" not in fname:
+        if not fname.startswith((_PKG_DIR, _PANDAS_DIR)):
             for scope in (frame.f_locals, frame.f_globals):
                 for name, value in list(scope.items()):
                     if value is obj and not name.startswith("_"):
@@ -522,7 +538,7 @@ def _user_call() -> bool:
     except ValueError:
         return True
     name = caller.f_code.co_filename
-    return "pandas" not in name and not name.startswith(_PKG_DIR)
+    return not name.startswith((_PANDAS_DIR, _PKG_DIR))
 
 
 def _traceable(obj) -> bool:
