@@ -117,6 +117,63 @@ jobs:
           MPLBACKEND: Agg
         run: python -m pytest
 
+  sdist:
+    # Downstream packagers -- Debian, conda-forge, Homebrew, Nix -- build from
+    # the sdist and run its test suite during the build. Every other job here
+    # runs from a full checkout, where .github/ and the community files exist,
+    # so this is the only place a suite that cannot pass from an sdist shows up.
+    #
+    # It also guards a second regression for free: the unpacked directory is
+    # named pandas_blame-<version>, which contains the string "pandas". That is
+    # exactly the condition that once made the tracer record nothing at all.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+      - run: uv build --sdist
+
+      - name: Unpack the sdist and run its own suite
+        env:
+          MPLBACKEND: Agg
+        run: |
+          mkdir -p /tmp/sd
+          tar xzf dist/*.tar.gz -C /tmp/sd
+          cd /tmp/sd/pandas_blame-*/
+          pwd   # contains "pandas": the bug this also guards
+          uv venv --python 3.12
+          VIRTUAL_ENV=$PWD/.venv uv pip install -e ".[dev]" matplotlib
+          ./.venv/bin/python -m pytest -q
+
+  floor:
+    # requires-python and the dependency lower bounds are claims. This is the
+    # job that checks them, rather than trusting whatever pip happens to resolve.
+    name: dependency floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Install the declared minimums
+        run: |
+          uv venv --python 3.10
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          uv pip install "pandas==2.0.0" "numpy==1.24.0" "pyarrow==14.0.0"
+          uv pip install --no-deps -e .
+          uv pip install pytest matplotlib "tomli>=2"
+
+      - name: Versions under test
+        run: python -c "import sys, pandas, numpy, pyarrow; print(sys.version); print('pandas', pandas.__version__, '| numpy', numpy.__version__, '| pyarrow', pyarrow.__version__)"
+
+      - name: Test
+        env:
+          MPLBACKEND: Agg
+        run: python -m pytest
+
   package:
     runs-on: ubuntu-latest
     steps:

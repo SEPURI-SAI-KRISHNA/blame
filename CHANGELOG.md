@@ -16,6 +16,16 @@ Notable changes to `pandas-blame`. Format follows
   `dict[str, object]`, so its result can be used without a cast.
 
 ### Added
+- CI builds the sdist, unpacks it and runs its own test suite. Downstream
+  packagers build from the sdist and run the suite during the build, and every
+  other job runs from a full checkout, so that failure could not surface
+  anywhere else. The unpacked directory is named `pandas_blame-<version>`,
+  which also makes this a standing guard against the "path contains pandas"
+  regression.
+- A CI job that installs the declared dependency minimums -- pandas 2.0.0,
+  numpy 1.24.0, pyarrow 14.0.0 on Python 3.10 -- and runs the suite against
+  them, plus a test asserting those pins match the bounds in `pyproject.toml`
+  so the two cannot drift.
 - `mypy` runs in CI over `src/blame`, with a step that checks a *downstream*
   project actually gets type errors -- the failure above passed `mypy` on the
   package itself, so checking the package alone would not have caught it.
