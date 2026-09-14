@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:  # pandas is imported lazily at runtime, but annotations need the name
+    import pandas as pd
 
 from . import _lineage as lin
 from ._graph import FrameNode, Step
@@ -58,7 +62,7 @@ class Explanation:
     hops: list[Hop]
     approximate: bool
 
-    def frames(self) -> dict[str, object]:
+    def frames(self) -> dict[str, pd.DataFrame]:
         """Materialize the contributing source rows, one DataFrame per source."""
         out = {}
         for fid, rows in self.sources.items():
@@ -195,7 +199,10 @@ class Run:
             if parent is None:
                 return None
             take = self.lineage(step.idx).take_for(ref.ref["slot"])
-            value = parent if take is None else _apply_take(parent, take)
+            # take_for returns None for identity, a bool when the step creates
+            # new values rather than moving them, or the row mapping itself.
+            # Only the array form can index a parent column.
+            value = parent if not isinstance(take, np.ndarray) else _apply_take(parent, take)
         value = value.reset_index(drop=True)
         self._column_cache[key] = value
         return value

@@ -9,8 +9,12 @@ price, and here is the operation that carried it across.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from .query import Run
 
 _MAX_SHOW = 12
 
@@ -198,18 +202,18 @@ def _frame_delta(left, right, on, rtol):
 
 @dataclass
 class Diff:
-    left: object
-    right: object
+    left: Run
+    right: Run
     label: str
-    shape_before: tuple
-    shape_after: tuple
+    shape_before: tuple[int, int]
+    shape_after: tuple[int, int]
     aligned_by: str
     changes: list[RowChange]
     gained_columns: list[str]
     lost_columns: list[str]
     explained: int
     unexplained: int
-    source_summary: dict
+    source_summary: dict[str, str]
 
     def __bool__(self) -> bool:
         return bool(self.changes or self.gained_columns or self.lost_columns)
