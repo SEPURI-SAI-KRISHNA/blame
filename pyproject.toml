@@ -75,6 +75,22 @@ ignore = [
 "tests/*" = ["F841"]
 "bench/*" = ["B023"]
 
+[tool.mypy]
+files = ["src/blame"]
+# No python_version pin: numpy's bundled stubs use 3.12 syntax and fail to parse
+# under an older setting. Runtime compatibility with 3.10 is what the test
+# matrix proves; this checks the annotations.
+# The package ships a py.typed marker, so these annotations are a promise to
+# every downstream type checker. Checking them here is what makes that honest.
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_reexport = true
+
+[[tool.mypy.overrides]]
+# pyarrow ships neither stubs nor a py.typed marker.
+module = ["pyarrow.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers --strict-config"

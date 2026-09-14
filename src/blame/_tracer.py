@@ -170,7 +170,7 @@ class Tracer:
                 methods = methods[:8]
         key = id(new)
         try:
-            keeper = weakref.ref(new, lambda _r, k=key: self._derived.pop(k, None))
+            keeper = weakref.ref(new, lambda _r, k=key: self._derived.pop(k, None))  # type: ignore[misc]
         except TypeError:
             return
         self._derived[key] = (fid, methods, keeper)
@@ -228,7 +228,7 @@ class Tracer:
         key = id(obj)
         self._obj_to_fid[key] = fid
         try:
-            self._refs[key] = weakref.ref(obj, lambda _r, k=key: self._forget(k))
+            self._refs[key] = weakref.ref(obj, lambda _r, k=key: self._forget(k))  # type: ignore[misc]
         except TypeError:
             pass
         return fid
@@ -669,15 +669,16 @@ def _membership(keys, out_index, n_in, all_rows_key=None) -> lin.Group | None:
     offsets = np.zeros(len(out_index) + 1, dtype=np.int64)
     chunks = []
     for i, key in enumerate(out_index):
+        found: object
         if all_rows_key is not None and key == all_rows_key:
             found = every  # a margins total spans everything
         else:
             found = groups.get(key)
             if found is None and isinstance(key, tuple) and len(key) == 1:
                 found = groups.get(key[0])
-        found = np.asarray([] if found is None else found, dtype=np.int64)
-        chunks.append(found)
-        offsets[i + 1] = offsets[i] + len(found)
+        rows = np.asarray([] if found is None else found, dtype=np.int64)
+        chunks.append(rows)
+        offsets[i + 1] = offsets[i] + len(rows)
     if not any(len(c) for c in chunks):
         return None  # nothing matched: we read the keys wrong
     indices = np.concatenate(chunks) if chunks else np.empty(0, dtype=np.int64)

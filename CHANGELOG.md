@@ -7,6 +7,29 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Fixed
+- The `py.typed` marker shipped in 0.1.2 promised working type hints and
+  delivered none. `trace()` had no return annotation, so `blame.trace()`
+  yielded an untyped value and every type check a caller wrote against it
+  passed vacuously -- `h.run.nosuchmethod()` and `why(row="not-an-int")` were
+  both accepted. `Handle` is now a module-level class, `trace()` is annotated,
+  and `Explanation.frames()` returns `dict[str, pd.DataFrame]` rather than
+  `dict[str, object]`, so its result can be used without a cast.
+
+### Added
+- `mypy` runs in CI over `src/blame`, with a step that checks a *downstream*
+  project actually gets type errors -- the failure above passed `mypy` on the
+  package itself, so checking the package alone would not have caught it.
+- `Handle` is exported, so the value `trace()` yields can be named in a
+  signature.
+
+### Changed
+- `Handle.run` is typed `Run` rather than `Run | None` and raises a
+  `RuntimeError` when read before the `with` block exits, instead of returning
+  `None`. Nothing is recorded until the block closes, so the old return value
+  was never useful; the annotation now matches the contract and callers do not
+  have to narrow away a `None` that cannot occur in practice.
+
+### Fixed
 - Pandas operations running on *other* threads were recorded into whatever
   trace happened to be open, putting steps into the graph that the pipeline
   never ran and adding source frames it never read. The patches are global, so

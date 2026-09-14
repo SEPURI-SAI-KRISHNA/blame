@@ -15,6 +15,7 @@ print(run.why(row=2))       # which source rows produced this cell
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Iterator
 from pathlib import Path
 
 from . import _tracer
@@ -26,6 +27,7 @@ __version__ = "0.1.2"
 __all__ = [
     "Diff",
     "Explanation",
+    "Handle",
     "Run",
     "diff",
     "forward",
@@ -60,24 +62,41 @@ def stop() -> Run | None:
     return _LAST
 
 
+class Handle:
+    """What `trace()` yields. Its `.run` is the finished run, set on exit.
+
+    Defined at module level rather than inside `trace()` so that it can be
+    named in an annotation: without that, `trace()` yields an untyped value and
+    every type check a caller writes against it is vacuous.
+    """
+
+    _run: Run | None = None
+
+    @property
+    def run(self) -> Run:
+        """The recorded run. Only meaningful once the `with` block has exited."""
+        if self._run is None:
+            raise RuntimeError(
+                "the run is not available until the `with blame.trace()` block "
+                "has exited -- nothing is recorded until then"
+            )
+        return self._run
+
+
 @contextlib.contextmanager
 def trace(
     label: str = "",
     root: str | Path = ".blame",
     sample_rows: int | None = None,
     compression: str | None = "none",
-):
+) -> Iterator[Handle]:
     """Context manager form. Yields a handle whose .run is set on exit."""
-
-    class Handle:
-        run: Run | None = None
-
     handle = Handle()
     start(label, root, sample_rows, compression)
     try:
         yield handle
     finally:
-        handle.run = stop()
+        handle._run = stop()
 
 
 def last_run() -> Run:

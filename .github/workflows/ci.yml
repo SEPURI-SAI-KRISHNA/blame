@@ -30,6 +30,47 @@ jobs:
       - run: uvx ruff check --output-format=github .
       - run: uvx ruff format --check --diff .
 
+  typecheck:
+    # The package ships a py.typed marker, so its annotations are a promise to
+    # every downstream type checker. This is what makes that promise honest.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          uv pip install -e . mypy pandas-stubs
+      - run: mypy
+
+      - name: A downstream project must actually get type checking
+        # Guards the failure this job was added for: the marker shipped while
+        # trace() returned an untyped value, so every check a caller wrote
+        # against it passed vacuously.
+        run: |
+          mkdir -p /tmp/downstream && cd /tmp/downstream
+          printf '[mypy]\n' > mypy.ini
+          cat > wrong.py <<'PY'
+          import blame
+          import pandas as pd
+
+          with blame.trace() as h:
+              df = pd.DataFrame({"v": [1, 2, 3]})
+              out = df[df.v > 1]
+
+          h.run.why(row="not-an-int")
+          h.run.nosuchmethod()
+          PY
+          if mypy --no-incremental --config-file=mypy.ini wrong.py; then
+            echo "::error::downstream type checking found nothing; py.typed is not delivering"
+            exit 1
+          fi
+          echo "downstream type checking works"
+
   test:
     name: pandas ${{ matrix.pandas || 'latest' }} / py ${{ matrix.python }}
     runs-on: ubuntu-latest
