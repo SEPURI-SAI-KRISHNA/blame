@@ -1,4 +1,4 @@
-name: Wrong or missing lineage
+name: Bug Report
 description: blame gave the wrong answer, no answer, or crashed
 labels: ["bug"]
 body:

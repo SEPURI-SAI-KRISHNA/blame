@@ -1,4 +1,4 @@
-name: Performance or memory problem
+name: Performance Issue
 description: Capture is far slower, or uses far more memory, than the published figures
 labels: ["performance"]
 body:
