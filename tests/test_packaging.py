@@ -121,3 +121,31 @@ def test_publishing_action_is_pinned_to_an_exact_version():
             break
     else:
         raise AssertionError("release.yml no longer publishes to PyPI")
+
+
+@repo_only
+def test_ci_floor_job_pins_the_versions_pyproject_declares():
+    """The dependency lower bounds are a claim; CI's floor job is the check.
+
+    They are written in two places, so this asserts they agree. A bound raised
+    in pyproject without updating the job would leave the job testing a version
+    the package no longer claims to support.
+    """
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    declared = {}
+    for spec in pyproject["project"]["dependencies"]:
+        name, _, bound = spec.partition(">=")
+        assert bound, f"{spec!r} has no lower bound to check"
+        declared[name.strip()] = tuple(int(p) for p in bound.strip().split("."))
+
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    pinned = {
+        name: tuple(int(p) for p in ver.split("."))
+        for name, ver in re.findall(r'"([a-z]+)==([0-9.]+)"', ci)
+    }
+
+    for name, bound in declared.items():
+        assert name in pinned, f"the floor job does not pin {name}"
+        got = pinned[name]
+        padded = bound + (0,) * (len(got) - len(bound))
+        assert got == padded, f"{name}: pyproject says >={bound}, floor job pins =={got}"
