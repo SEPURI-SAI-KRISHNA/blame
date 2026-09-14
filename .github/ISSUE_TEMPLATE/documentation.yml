@@ -1,4 +1,4 @@
-name: Documentation problem
+name: Documentation Improvement
 description: Something in the README or docs/ is wrong, misleading, or missing
 labels: ["documentation"]
 body:

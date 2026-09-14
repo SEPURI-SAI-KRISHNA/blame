@@ -1,4 +1,4 @@
-name: Unsupported pandas operation
+name: Unsupported Operation
 description: An operation blame does not trace, or traces only approximately
 labels: ["enhancement", "coverage"]
 body:
