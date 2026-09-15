@@ -7,6 +7,12 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Changed
+- CI runs the suite on Windows and macOS. Every job ran on Linux, while the
+  package declared no platform restriction and PyPI served it to everyone. The
+  tracer decides whose code a stack frame belongs to by comparing filesystem
+  paths as strings, which is the most platform-sensitive thing in it -- and the
+  fix for the path-attribution bug in 0.1.2 was written and checked on Linux
+  only. ([#15](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/15))
 - Python 3.14 is tested in CI and declared in the trove classifiers. It has
   worked since well before this release; nothing said so, so PyPI's metadata
   suggested the opposite to anyone checking before installing.
@@ -22,6 +28,16 @@ Notable changes to `pandas-blame`. Format follows
   `main` threw away the build record of the commit that had just become `main`.
 
 ### Fixed
+- Storing a column could fail on Windows when another process was reading the
+  same column. `os.replace` overwrites silently on POSIX, so the loser of a
+  race between two writers wrote identical bytes over identical bytes; on
+  Windows it raises `PermissionError: [WinError 5]` while any process holds the
+  destination open, and a reader holds it open for as long as it is loading
+  that column. That turned a race writers were meant to survive back into
+  "lineage capture failed" and a run with steps missing. The filename is a
+  content address, so a destination that already exists holds exactly those
+  bytes: losing the race is now treated as the write having succeeded.
+  Introduced by the fix for #33 and found by the Windows job added in #15.
 - Two processes tracing into the same `.blame` directory corrupted each
   other's runs. The store is content-addressed, so two writers holding the same
   column compute the same digest -- and the temporary file was named for that
