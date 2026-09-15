@@ -92,6 +92,11 @@ python validation/run.py --json    # machine-readable
 python validation/run.py --only 03_subset_data
 ```
 
+It needs `matplotlib` and `openpyxl` installed -- dependencies of the corpus
+rather than of `blame`: 04_plotting draws, and 02_read_write round-trips an
+`.xlsx`. A missing one is reported as `untraced: ModuleNotFoundError` against
+that tutorial, which distinguishes it from anything `blame` did.
+
 The harness downloads the tutorials and their data from the pinned pandas tag
 on first run and caches them, so later runs need no network. It exits non-zero
 if any script raises under tracing or if any frame differs between the traced

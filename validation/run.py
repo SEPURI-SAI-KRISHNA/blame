@@ -13,6 +13,12 @@ code returns is broken no matter how good its lineage is.
 
     python validation/run.py            # human-readable table
     python validation/run.py --json     # machine-readable, for the docs table
+
+The corpus has dependencies of its own, beyond anything blame needs:
+`matplotlib` because 04_plotting draws, and `openpyxl` because 02_read_write
+round-trips an .xlsx. A missing one shows up as `untraced: ModuleNotFoundError`
+against that tutorial -- the failure is in the plain run, so it is an
+environment problem rather than anything blame did.
 """
 
 from __future__ import annotations

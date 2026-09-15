@@ -237,7 +237,9 @@ jobs:
       - name: Install
         run: |
           uv venv --python 3.12
-          uv pip install -e . matplotlib
+          # matplotlib and openpyxl are the corpus's dependencies, not ours:
+          # 04_plotting draws, and 02_read_write round-trips an .xlsx.
+          uv pip install -e . matplotlib openpyxl
 
       - name: Run the corpus traced and untraced
         env:
