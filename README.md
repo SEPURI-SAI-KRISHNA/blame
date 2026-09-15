@@ -83,8 +83,9 @@ narrowed and never presented as exact — see [docs/accuracy.md](https://github.
 
 Capture costs about **2x** wall time and **5 ms per step** on a million rows
 ([benchmarks](https://github.com/SEPURI-SAI-KRISHNA/blame/blob/main/docs/benchmarks.md)). Tested on pandas 2.0.3, 2.2.3 and 3.0.5;
-the eight pandas documentation tutorials run under it with no exceptions, no
-changed results and no approximate steps ([validation](https://github.com/SEPURI-SAI-KRISHNA/blame/blob/main/docs/validation.md)).
+the ten pandas documentation tutorials run under it with no exceptions and no
+changed results, in a harness that runs on every pull request
+([validation](https://github.com/SEPURI-SAI-KRISHNA/blame/blob/main/docs/validation.md)).
 
 ## Status
 
