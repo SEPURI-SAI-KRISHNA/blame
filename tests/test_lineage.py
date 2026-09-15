@@ -980,3 +980,97 @@ def test_other_threads_do_not_leak_into_the_trace():
     ops = [s.op for s in h.run.steps]
     assert ops == ["filter", "groupby.sum"], f"other thread leaked in: {ops}"
     assert len(h.run.sources) == 1, f"phantom source frames: {h.run.sources}"
+
+
+def test_two_threads_cannot_open_a_trace_at_once():
+    """Opening a trace has to be one step, not a check followed by an act.
+
+    start() tested _ACTIVE, then called install(), then assigned. install()
+    touches 150-odd attributes, which is a wide enough window for a second
+    thread to pass a check the first had not yet invalidated -- so two traces
+    ran at once, each missing the other's steps, and whichever finished first
+    unpatched pandas underneath the other. Both failures were silent: the user
+    got a run back, it was just incomplete.
+
+    The window is forced open here rather than raced for. Timing-dependent
+    tests pass by luck; a correct implementation holds one lock across the
+    whole of start(), so a slow install() cannot change the outcome.
+    """
+    import threading
+
+    from blame import _tracer
+
+    live = 0
+    peak = 0
+    counter_lock = threading.Lock()
+    real_install = _tracer.install
+
+    def slow_install():
+        time.sleep(0.05)
+        real_install()
+
+    def worker():
+        nonlocal live, peak
+        try:
+            with blame.trace():
+                with counter_lock:
+                    live += 1
+                    peak = max(peak, live)
+                time.sleep(0.02)
+                with counter_lock:
+                    live -= 1
+        except RuntimeError:
+            pass  # the guard doing its job is the expected outcome for one thread
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(_tracer, "install", slow_install)
+    try:
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        monkeypatch.undo()
+
+    assert peak == 1, f"{peak} traces were open at once; only one may be"
+    assert _tracer._ACTIVE is None, "a tracer was left active"
+    assert _tracer._PATCHES == [], "pandas was left patched"
+
+
+def test_a_failed_restore_is_reported_not_swallowed():
+    """uninstall() used to `except Exception: pass`.
+
+    A method that cannot be put back stays wrapped for the rest of the
+    process, affecting every later pandas call. Swallowing the error made that
+    indistinguishable from a clean exit, so the remaining patches still have to
+    be restored -- but not quietly.
+    """
+    from blame import _tracer
+
+    class Unrestorable:
+        __name__ = "Unrestorable"
+
+        def __setattr__(self, name, value):
+            raise AttributeError("read-only for the test")
+
+    restored = []
+
+    class Restorable:
+        __name__ = "Restorable"
+
+        def __setattr__(self, name, value):
+            restored.append(name)
+
+    _tracer._PATCHES.append((Restorable(), "ok_one", object()))
+    _tracer._PATCHES.append((Unrestorable(), "bad_one", object()))
+    _tracer._PATCHES.append((Restorable(), "ok_two", object()))
+    try:
+        with pytest.warns(UserWarning, match="could not restore"):
+            _tracer.uninstall()
+    finally:
+        _tracer._PATCHES.clear()
+
+    assert sorted(restored) == ["ok_one", "ok_two"], (
+        f"a failed restore stopped the others: {restored}"
+    )

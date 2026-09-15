@@ -7,6 +7,22 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Fixed
+- Two threads could open a trace at the same time. `start()` checked whether a
+  trace was running, then called `install()` -- 158 attribute assignments --
+  and only then claimed the slot, so a second thread could pass a check the
+  first had not yet invalidated. Both traces then ran at once, each missing the
+  other's steps, and whichever finished first restored pandas underneath the
+  one still running. Both failures were silent: a run came back, it was just
+  incomplete. `start()`, `stop()`, `install()` and `uninstall()` now hold one
+  reentrant lock across the whole transition. Reading the active tracer stays
+  lock-free, because that happens on every patched pandas call.
+  ([#18](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/18))
+- `uninstall()` could raise `IndexError: pop from empty list` when two threads
+  ended a trace at once, and silently swallowed any attribute it failed to
+  restore -- leaving pandas patched for the rest of the process with no
+  indication. Failed restores are now reported.
+
+### Fixed
 - The `py.typed` marker shipped in 0.1.2 promised working type hints and
   delivered none. `trace()` had no return annotation, so `blame.trace()`
   yielded an untyped value and every type check a caller wrote against it
