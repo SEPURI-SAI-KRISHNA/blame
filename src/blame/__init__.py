@@ -23,7 +23,7 @@ from ._store import Store
 from .diff import Diff
 from .query import Explanation, Run
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __all__ = [
     "Diff",
     "Explanation",
