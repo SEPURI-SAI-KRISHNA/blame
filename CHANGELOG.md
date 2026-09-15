@@ -7,6 +7,13 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Changed
+- Run manifests record the store format version. Without it, the first
+  incompatible change to the on-disk layout would have reached a user as a
+  `KeyError` from inside a query, on a trace recorded weeks earlier; a reader
+  that cannot understand a trace now says so, naming both versions. A manifest
+  with no `format` key is read as version 1, so every trace written by 0.1.0
+  through 0.1.2 keeps working.
+  ([#21](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/21))
 - CI runs the suite on Windows and macOS. Every job ran on Linux, while the
   package declared no platform restriction and PyPI served it to everyone. The
   tracer decides whose code a stack frame belongs to by comparing filesystem

@@ -21,6 +21,18 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.ipc as ipc
 
+# The on-disk layout's version, written into every run manifest.
+#
+# It buys one thing: the ability to fail clearly. Without it, the first
+# incompatible change to this layout reaches a user as a KeyError from
+# somewhere inside query.py, on a trace they recorded weeks ago. A manifest
+# with no `format` key is version 1 -- that is what every trace written before
+# this existed is.
+#
+# Raise it only for a change a reader of the previous version cannot cope with.
+# Adding a key nobody has to read is not one of those.
+FORMAT = 1
+
 # A local debugging cache is bound by write time, not disk. zstd shrinks an
 # int64 column 2.3x but costs 14x the time to write it, so compression is off
 # by default and available for people who want the trade.
@@ -287,15 +299,28 @@ class Store:
         d = self.runs_dir / run_id
         d.mkdir(parents=True, exist_ok=True)
         path = d / "manifest.json"
+        payload = {"format": FORMAT, **manifest}
         # Atomic for the same reason as a column, one step removed: a reader
         # listing runs while this one is being written must not catch the file
         # half-formed.
-        _atomic_write(path, json.dumps(manifest, indent=2, default=str).encode("utf-8"))
+        _atomic_write(path, json.dumps(payload, indent=2, default=str).encode("utf-8"))
         return path
 
     def get_manifest(self, run_id: str) -> dict:
         path = self.runs_dir / run_id / "manifest.json"
-        return json.loads(path.read_text(encoding="utf-8"))
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        # Absent means version 1: every trace written before the key existed.
+        found = manifest.get("format", 1)
+        if not isinstance(found, int) or isinstance(found, bool) or found > FORMAT:
+            from . import __version__
+
+            raise RuntimeError(
+                f"the trace in {path.parent} was written in store format {found!r}, "
+                f"and pandas-blame {__version__} reads format {FORMAT}. Upgrade "
+                f"pandas-blame to open it, or record the pipeline again with this "
+                f"version."
+            )
+        return manifest
 
     def list_runs(self) -> list[str]:
         runs = [p.name for p in self.runs_dir.iterdir() if (p / "manifest.json").exists()]

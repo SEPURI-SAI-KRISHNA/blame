@@ -1219,3 +1219,63 @@ def test_a_refused_replace_accepts_the_file_that_is_already_there(tmp_path):
 
     assert target.read_bytes() == b"written by somebody else"
     assert list(tmp_path.glob("*.tmp")) == [], "the losing writer left its temp file"
+
+
+def test_a_new_trace_records_the_store_format(tmp_path):
+    """Without a version on disk, the first incompatible change to the layout
+    reaches a user as a KeyError from inside a query, on a trace they recorded
+    weeks ago."""
+    import json
+
+    from blame import _store
+
+    with blame.trace(root=tmp_path / "bl") as h:
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        _ = df[df.a > 1]
+
+    manifest = json.loads(
+        (tmp_path / "bl" / "runs" / h.run.run_id / "manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["format"] == _store.FORMAT
+    assert list(manifest)[0] == "format", "the version should be the first thing a reader sees"
+
+
+def test_a_trace_written_before_versioning_still_loads(tmp_path):
+    """Every store on disk today has no `format` key. They must keep working:
+    a version field that orphans existing traces is worse than none."""
+    import json
+
+    with blame.trace(label="old", root=tmp_path / "bl") as h:
+        df = pd.DataFrame({"a": [1, 2, 3, 4], "b": [10.0, 20, 30, 40]})
+        kept = df[df.a > 1]
+        out = kept.groupby("a", as_index=False)["b"].sum()
+    expected = h.run.why(row=0).sources
+
+    path = tmp_path / "bl" / "runs" / h.run.run_id / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    del manifest["format"]
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    run = blame.load(h.run.run_id, root=tmp_path / "bl")
+    assert run.label == "old"
+    got = run.why(row=0).sources
+    assert {k: v.tolist() for k, v in got.items()} == {k: v.tolist() for k, v in expected.items()}
+
+
+def test_a_trace_from_a_newer_version_fails_with_a_clear_message(tmp_path):
+    """The whole point of the version. A reader that cannot understand a trace
+    should say so, naming both versions, rather than failing somewhere deep in
+    a query with a KeyError."""
+    import json
+
+    with blame.trace(root=tmp_path / "bl") as h:
+        df = pd.DataFrame({"a": [1, 2, 3]})
+        _ = df[df.a > 1]
+
+    path = tmp_path / "bl" / "runs" / h.run.run_id / "manifest.json"
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    manifest["format"] = 999
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match=r"store format 999.*reads format 1"):
+        blame.load(h.run.run_id, root=tmp_path / "bl")
