@@ -6,6 +6,8 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-15
+
 ### Added
 - CodeQL runs on every push, pull request and weekly, with the
   `security-and-quality` query suite. Nothing previously looked for the classes
@@ -17,6 +19,22 @@ Notable changes to `pandas-blame`. Format follows
   an exact release tag, which is what makes the supply chain reviewable; without
   something watching them, "pinned" quietly becomes "stuck on a version with a
   known problem".
+
+- CI builds the sdist, unpacks it and runs its own test suite. Downstream
+  packagers build from the sdist and run the suite during the build, and every
+  other job runs from a full checkout, so that failure could not surface
+  anywhere else. The unpacked directory is named `pandas_blame-<version>`,
+  which also makes this a standing guard against the "path contains pandas"
+  regression.
+- A CI job that installs the declared dependency minimums -- pandas 2.0.0,
+  numpy 1.24.0, pyarrow 14.0.0 on Python 3.10 -- and runs the suite against
+  them, plus a test asserting those pins match the bounds in `pyproject.toml`
+  so the two cannot drift.
+- `mypy` runs in CI over `src/blame`, with a step that checks a *downstream*
+  project actually gets type errors -- the failure above passed `mypy` on the
+  package itself, so checking the package alone would not have caught it.
+- `Handle` is exported, so the value `trace()` yields can be named in a
+  signature.
 
 ### Changed
 - Run manifests record the store format version. Without it, the first
@@ -45,6 +63,19 @@ Notable changes to `pandas-blame`. Format follows
   queued behind it.
 - Superseded builds are cancelled only for pull requests. Cancelling a push to
   `main` threw away the build record of the commit that had just become `main`.
+
+- `Handle.run` is typed `Run` rather than `Run | None` and raises a
+  `RuntimeError` when read before the `with` block exits, instead of returning
+  `None`. Nothing is recorded until the block closes, so the old return value
+  was never useful; the annotation now matches the contract and callers do not
+  have to narrow away a `None` that cannot occur in practice.
+
+- The sdist ships `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and `SECURITY.md`,
+  which the README links to, and the two tests that read `.github/workflows/`
+  now skip outside a source checkout instead of failing. The suite could not
+  pass when run from an unpacked sdist, which is how downstream packagers
+  (Debian, conda-forge, Homebrew, Nix) run it during a build.
+  ([#2](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/2))
 
 ### Fixed
 - Storing a column could fail on Windows when another process was reading the
@@ -85,7 +116,6 @@ Notable changes to `pandas-blame`. Format follows
   restore -- leaving pandas patched for the rest of the process with no
   indication. Failed restores are now reported.
 
-### Fixed
 - The `py.typed` marker shipped in 0.1.2 promised working type hints and
   delivered none. `trace()` had no return annotation, so `blame.trace()`
   yielded an untyped value and every type check a caller wrote against it
@@ -94,31 +124,6 @@ Notable changes to `pandas-blame`. Format follows
   and `Explanation.frames()` returns `dict[str, pd.DataFrame]` rather than
   `dict[str, object]`, so its result can be used without a cast.
 
-### Added
-- CI builds the sdist, unpacks it and runs its own test suite. Downstream
-  packagers build from the sdist and run the suite during the build, and every
-  other job runs from a full checkout, so that failure could not surface
-  anywhere else. The unpacked directory is named `pandas_blame-<version>`,
-  which also makes this a standing guard against the "path contains pandas"
-  regression.
-- A CI job that installs the declared dependency minimums -- pandas 2.0.0,
-  numpy 1.24.0, pyarrow 14.0.0 on Python 3.10 -- and runs the suite against
-  them, plus a test asserting those pins match the bounds in `pyproject.toml`
-  so the two cannot drift.
-- `mypy` runs in CI over `src/blame`, with a step that checks a *downstream*
-  project actually gets type errors -- the failure above passed `mypy` on the
-  package itself, so checking the package alone would not have caught it.
-- `Handle` is exported, so the value `trace()` yields can be named in a
-  signature.
-
-### Changed
-- `Handle.run` is typed `Run` rather than `Run | None` and raises a
-  `RuntimeError` when read before the `with` block exits, instead of returning
-  `None`. Nothing is recorded until the block closes, so the old return value
-  was never useful; the annotation now matches the contract and callers do not
-  have to narrow away a `None` that cannot occur in practice.
-
-### Fixed
 - Pandas operations running on *other* threads were recorded into whatever
   trace happened to be open, putting steps into the graph that the pipeline
   never ran and adding source frames it never read. The patches are global, so
@@ -128,7 +133,6 @@ Notable changes to `pandas-blame`. Format follows
   joblib or Dask with a threading backend.
   ([#5](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/5))
 
-### Fixed
 - Tracing silently recorded nothing when the traced code lived in a path
   containing the string `pandas` -- `~/pandas-tutorial/`, `~/pandas_work/`, an
   unpacked `pandas_blame` sdist. Stack frames were attributed to pandas by
@@ -137,14 +141,6 @@ Notable changes to `pandas-blame`. Format follows
   steps were captured, and `why` answered about an empty run. No exception and
   no warning: the pipeline ran normally and the lineage was simply absent.
   Affects 0.1.0 through 0.1.2. ([#1](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/1))
-
-### Changed
-- The sdist ships `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` and `SECURITY.md`,
-  which the README links to, and the two tests that read `.github/workflows/`
-  now skip outside a source checkout instead of failing. The suite could not
-  pass when run from an unpacked sdist, which is how downstream packagers
-  (Debian, conda-forge, Homebrew, Nix) run it during a build.
-  ([#2](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/2))
 
 ## [0.1.2] - 2026-09-13
 
@@ -213,7 +209,8 @@ First public release.
 - Content-addressed column store with structural sharing, keeping capture at
   about 2x wall time and 5 ms per step on a million rows.
 
-[Unreleased]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/SEPURI-SAI-KRISHNA/blame/releases/tag/v0.1.0
