@@ -116,7 +116,7 @@ class Run:
         }
         self.steps: list[Step] = [Step.from_json(d) for d in manifest["steps"]]
         self._lineage_cache: dict[int, lin.Lineage] = {}
-        self._column_cache: dict[tuple[str, str], object] = {}
+        self._column_cache: dict[tuple[str, str], pd.Series | None] = {}
 
     # -- loading ---------------------------------------------------------
 
@@ -177,7 +177,7 @@ class Run:
                 return c
         return None
 
-    def _column(self, fid: str, name: str):
+    def _column(self, fid: str, name: str) -> pd.Series | None:
         """One column of one frame, following references back to stored bytes."""
         import pandas as pd
 
@@ -187,18 +187,29 @@ class Run:
         ref = self._colref(fid, name)
         if ref is None:
             return None
+        # `kind` says which of `hash` and `ref` is populated, but only by
+        # convention -- both are optional on ColumnRef. Checking rather than
+        # asserting: a manifest missing the field is a store written by
+        # something else, and a column we cannot rebuild is a None, not a crash.
         if ref.kind == "data":
+            if ref.hash is None:
+                return None
             value = self.store.get_column(ref.hash).to_pandas()
         elif ref.kind == "range":
             r = ref.ref
+            if r is None:
+                return None
             value = pd.Series(range(r["start"], r["stop"], r["step"]))
         else:
-            step = self.steps[ref.ref["step"]]
-            parent_fid = step.inputs[ref.ref["slot"]]
-            parent = self._column(parent_fid, ref.ref["name"])
+            spec = ref.ref
+            if spec is None:
+                return None
+            step = self.steps[spec["step"]]
+            parent_fid = step.inputs[spec["slot"]]
+            parent = self._column(parent_fid, spec["name"])
             if parent is None:
                 return None
-            take = self.lineage(step.idx).take_for(ref.ref["slot"])
+            take = self.lineage(step.idx).take_for(spec["slot"])
             # take_for returns None for identity, a bool when the step creates
             # new values rather than moving them, or the row mapping itself.
             # Only the array form can index a parent column.

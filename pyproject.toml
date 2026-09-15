@@ -86,6 +86,10 @@ files = ["src/blame"]
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_reexport = true
+# Without this mypy skips the body of every unannotated function, and most of
+# this package is unannotated -- it reported "Success" while checking a
+# fraction of the code, and five real errors were sitting behind that.
+check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 # pyarrow ships neither stubs nor a py.typed marker.
