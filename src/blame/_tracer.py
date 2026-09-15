@@ -29,6 +29,19 @@ from ._graph import FrameNode, Step
 from ._store import Store
 
 _ACTIVE: Tracer | None = None
+
+# Guards every transition of _ACTIVE and _PATCHES together, so the "one trace
+# at a time" rule and the patch state can never disagree.
+#
+# Reading _ACTIVE is deliberately left unlocked: _active_here() runs on every
+# patched pandas call, and taking a lock there would serialise the whole
+# process. A lone reference read is safe -- the reader either sees the tracer
+# or does not, and the thread-ownership check decides the rest.
+#
+# Reentrant because stop() calls uninstall() while already holding it, and
+# both are reachable on their own.
+_LOCK = threading.RLock()
+
 _PKG_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -1111,6 +1124,11 @@ _RESHAPE_OPS = ["pivot", "pivot_table", "unstack"]
 
 
 def install() -> None:
+    with _LOCK:
+        _install_all()
+
+
+def _install_all() -> None:
     if _PATCHES:
         return
     import pandas as pd
@@ -1164,28 +1182,52 @@ def install() -> None:
 
 
 def uninstall() -> None:
-    while _PATCHES:
-        owner, name, orig = _PATCHES.pop()
-        try:
-            setattr(owner, name, orig)
-        except Exception:
-            pass
+    failed: list[str] = []
+    with _LOCK:
+        while _PATCHES:
+            owner, name, orig = _PATCHES.pop()
+            try:
+                setattr(owner, name, orig)
+            except Exception as exc:
+                # Keep restoring the rest: leaving the remaining patches in
+                # place would be worse. But say so -- a method left wrapped
+                # affects every later pandas call in the process, and a silent
+                # pass here made that indistinguishable from a clean exit.
+                failed.append(f"{getattr(owner, '__name__', owner)}.{name} ({exc})")
+    if failed:
+        warnings.warn(
+            "blame: could not restore " + ", ".join(failed) + " -- pandas is "
+            "still patched for these; restart the process to be sure of it",
+            stacklevel=2,
+        )
 
 
 def start(store: Store, label: str = "") -> Tracer:
     global _ACTIVE
-    if _ACTIVE is not None:
-        raise RuntimeError("a blame trace is already running")
-    install()
-    _ACTIVE = Tracer(store, uuid.uuid4().hex[:12], label)
-    return _ACTIVE
+    # The check and the assignment have to be one step. install() sits between
+    # them and touches 150-odd attributes, which is more than enough of a
+    # window for a second thread to pass a check the first has not yet
+    # invalidated -- and then two traces run at once, each missing the other's
+    # steps, with whichever finishes first unpatching pandas underneath the
+    # other.
+    with _LOCK:
+        if _ACTIVE is not None:
+            raise RuntimeError("a blame trace is already running")
+        install()  # reacquires _LOCK; it is reentrant for exactly this
+        _ACTIVE = Tracer(store, uuid.uuid4().hex[:12], label)
+        return _ACTIVE
 
 
 def stop() -> Tracer | None:
     global _ACTIVE
-    t = _ACTIVE
-    _ACTIVE = None
-    uninstall()  # outside a trace, pandas is exactly as we found it
+    with _LOCK:
+        t = _ACTIVE
+        _ACTIVE = None
+        uninstall()  # outside a trace, pandas is exactly as we found it
+    # Flushing writes to disk and warn() runs whatever the user's warning
+    # filters do, so neither belongs under the lock: the trace is already
+    # closed and pandas already restored, and another thread should be free to
+    # start its own trace while this one is still writing.
     if t is not None:
         t.flush()
         for msg in t.warnings:
