@@ -6,6 +6,18 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Added
+- CodeQL runs on every push, pull request and weekly, with the
+  `security-and-quality` query suite. Nothing previously looked for the classes
+  of defect it finds -- `ruff` checks style and `mypy` checks annotations, and
+  neither reads `ui.py`'s HTTP handling, `_store.py`'s path construction from a
+  user-supplied root, or `cli.py`'s argument handling with that question in
+  mind. ([#16](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/16))
+- Dependabot watches the pinned action versions weekly. Every workflow pins to
+  an exact release tag, which is what makes the supply chain reviewable; without
+  something watching them, "pinned" quietly becomes "stuck on a version with a
+  known problem".
+
 ### Changed
 - Run manifests record the store format version. Without it, the first
   incompatible change to the on-disk layout would have reached a user as a
