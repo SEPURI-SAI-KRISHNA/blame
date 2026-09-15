@@ -1074,3 +1074,114 @@ def test_a_failed_restore_is_reported_not_swallowed():
     assert sorted(restored) == ["ok_one", "ok_two"], (
         f"a failed restore stopped the others: {restored}"
     )
+
+
+def test_processes_sharing_a_store_do_not_corrupt_each_other(tmp_path):
+    """The store is content-addressed, so two processes collide by design.
+
+    A temp file named for the destination is the same path for every writer
+    holding the same column. One renamed it away while another was still about
+    to, and the loser raised FileNotFoundError -- which the tracer caught as
+    "lineage capture failed", dropped the step, and handed back a run that was
+    missing pieces. Two runs over the same inputs is the `blame diff` workflow,
+    so identical columns are the common case, not the exotic one.
+    """
+    script = tmp_path / "w.py"
+    script.write_text(
+        "import sys, warnings\n"
+        "import pandas as pd\n"
+        "import blame\n"
+        "warnings.simplefilter('error', UserWarning)\n"
+        "root = sys.argv[1]\n"
+        "df = pd.DataFrame({'a': list(range(200)), 'b': [float(i) for i in range(200)]})\n"
+        "for i in range(12):\n"
+        "    with blame.trace(label=f'{sys.argv[2]}-{i}', root=root) as h:\n"
+        "        kept = df[df.a > 5]\n"
+        "        out = kept.groupby(kept.a % 7, as_index=False)['b'].sum()\n"
+        "    e = h.run.why(row=0, target=out)\n"
+        "    assert e.sources, 'a step went missing from the run'\n",
+        encoding="utf-8",
+    )
+    root = tmp_path / "shared"
+
+    procs = [
+        subprocess.Popen(
+            [sys.executable, str(script), str(root), tag],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for tag in ("A", "B", "C", "D")
+    ]
+    outputs = [(p.wait(timeout=120), p.communicate()[0]) for p in procs]
+
+    for code, out in outputs:
+        assert code == 0, f"a writer failed:\n{out}"
+        assert "lineage capture failed" not in out, f"a step was dropped:\n{out}"
+
+
+def test_a_stored_column_gets_a_temp_file_of_its_own(tmp_path):
+    """The temp file has to be named for the writer, not the destination.
+
+    Content addressing makes collision the normal case: two processes holding
+    the same column compute the same digest, so a temp path derived from it is
+    the same path for both. One renames it away while the other is still about
+    to, and the loser gets FileNotFoundError -- which the tracer catches as
+    "lineage capture failed" and turns into a run with steps missing.
+
+    Asserted directly rather than raced for. The window is microseconds wide,
+    so a test that raced for it would pass most runs even on broken code -- the
+    multi-process test above reproduces the same defect only about twice in
+    five attempts, which is why it is a scenario check and this is the guard.
+    """
+    import tempfile as tempfile_module
+
+    from blame import _store
+
+    target = tmp_path / "967ef979b46dab63839b.arrow"
+    handed_out: list[str] = []
+    real_mkstemp = tempfile_module.mkstemp
+
+    def spy_mkstemp(*args, **kwargs):
+        fd, name = real_mkstemp(*args, **kwargs)
+        handed_out.append(name)
+        return fd, name
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(tempfile_module, "mkstemp", spy_mkstemp)
+    try:
+        _store._atomic_write(target, b"first writer")
+        _store._atomic_write(target, b"second writer")
+    finally:
+        monkeypatch.undo()
+
+    assert len(handed_out) == 2, "the write did not go through a temp file"
+    assert handed_out[0] != handed_out[1], (
+        f"both writers used {handed_out[0]}; whichever renamed first would "
+        "delete the other's file out from under it"
+    )
+    assert target.read_bytes() == b"second writer"
+    assert list(tmp_path.glob("*.tmp")) == [], "a temp file was left behind"
+
+
+def test_a_failed_write_leaves_no_temp_file_behind(tmp_path):
+    """A half-written temp file is litter the next reader may trip over."""
+    import os as os_module
+
+    from blame import _store
+
+    target = tmp_path / "col.arrow"
+
+    def failing_replace(src, dst):
+        raise OSError("disk full, for the test")
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(os_module, "replace", failing_replace)
+    try:
+        with pytest.raises(OSError, match="disk full"):
+            _store._atomic_write(target, b"x" * 100)
+    finally:
+        monkeypatch.undo()
+
+    assert not target.exists()
+    assert list(tmp_path.glob("*.tmp")) == [], "a failed write left a temp file"

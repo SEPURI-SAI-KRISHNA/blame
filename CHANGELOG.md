@@ -7,6 +7,19 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Fixed
+- Two processes tracing into the same `.blame` directory corrupted each
+  other's runs. The store is content-addressed, so two writers holding the same
+  column compute the same digest -- and the temporary file was named for that
+  digest, so it was the same path for both. One renamed it into place while the
+  other was still about to, and the loser raised `FileNotFoundError`, which
+  surfaced as "lineage capture failed" and a run with steps missing from it.
+  Temporary files are now unique to the writer and moved with `os.replace`, so
+  the loser of a race overwrites identical bytes instead of failing. The default
+  root is `.blame` in the working directory, so this affected anything running
+  more than one process in a project -- `pytest -n auto`, two notebooks, a
+  parallel batch job. The run manifest is written the same way now, so a reader
+  listing runs cannot catch it half-formed.
+  ([#33](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/33))
 - Two threads could open a trace at the same time. `start()` checked whether a
   trace was running, then called `install()` -- 158 attribute assignments --
   and only then claimed the slot, so a second thread could pass a check the
