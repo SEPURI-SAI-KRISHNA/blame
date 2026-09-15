@@ -6,6 +6,17 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Changed
+- CI no longer runs the weekly schedule on forks. A cron is inherited by every
+  fork, so each one was spending its owner's Actions minutes on a schedule they
+  never set up; a fork's own pushes and pull requests still build.
+  ([#19](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/19))
+- Every CI and release job declares `timeout-minutes`. GitHub's default is six
+  hours, so one hung job could burn the whole budget and block everything
+  queued behind it.
+- Superseded builds are cancelled only for pull requests. Cancelling a push to
+  `main` threw away the build record of the commit that had just become `main`.
+
 ### Fixed
 - Two processes tracing into the same `.blame` directory corrupted each
   other's runs. The store is content-addressed, so two writers holding the same

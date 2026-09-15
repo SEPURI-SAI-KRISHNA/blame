@@ -149,3 +149,60 @@ def test_ci_floor_job_pins_the_versions_pyproject_declares():
         got = pinned[name]
         padded = bound + (0,) * (len(got) - len(bound))
         assert got == padded, f"{name}: pyproject says >={bound}, floor job pins =={got}"
+
+
+def _jobs(workflow: Path) -> dict[str, str]:
+    """Every job in a workflow, as name -> its own block of text.
+
+    Parsed with a regex rather than a YAML library on purpose: the suite's only
+    declared test dependency is pytest, and the CI floor job installs nothing
+    else. A checker that cannot run everywhere the suite runs is not a checker.
+    """
+    text = workflow.read_text()
+    body = text.split("\njobs:\n", 1)[1]
+    starts = [(m.start(), m.group(1)) for m in re.finditer(r"^  ([A-Za-z_][\w-]*):$", body, re.M)]
+    assert starts, f"no jobs found in {workflow.name}"
+    bounds = [*[s for s, _ in starts], len(body)]
+    return {name: body[bounds[i] : bounds[i + 1]] for i, (_, name) in enumerate(starts)}
+
+
+@repo_only
+@pytest.mark.parametrize("workflow", ["ci.yml", "release.yml"])
+def test_every_job_declares_a_timeout(workflow):
+    """GitHub's default is six hours.
+
+    A job that hangs -- a deadlock in the tracer, a nightly dependency that
+    never returns, a runner that loses its network -- otherwise burns the whole
+    budget and blocks everything queued behind it.
+    """
+    for name, block in _jobs(ROOT / ".github" / "workflows" / workflow).items():
+        assert "timeout-minutes:" in block, f"{workflow}: job {name!r} has no timeout"
+
+
+@repo_only
+def test_the_scheduled_run_is_guarded_against_forks():
+    """A cron is inherited by every fork of the repository.
+
+    Without a guard each fork runs this workflow weekly, spending its owner's
+    Actions minutes on a schedule they never set up. The guard has to be on
+    every job: a job added without it silently reintroduces the problem for
+    everyone who has forked.
+    """
+    path = ROOT / ".github" / "workflows" / "ci.yml"
+    assert "schedule:" in path.read_text(), "no cron here any more; drop this test"
+    for name, block in _jobs(path).items():
+        assert "github.event_name != 'schedule'" in block, (
+            f"job {name!r} runs on a fork's weekly cron"
+        )
+
+
+@repo_only
+def test_only_pull_request_builds_are_cancelled():
+    """Superseding a push to main throws away the record of that commit's build.
+
+    Collapsing repeated pushes to one pull request is the point of the setting;
+    doing it to main is not.
+    """
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    line = next(ln for ln in ci.splitlines() if "cancel-in-progress:" in ln)
+    assert "github.event_name == 'pull_request'" in line, f"unconditional cancel: {line.strip()}"
