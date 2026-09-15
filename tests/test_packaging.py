@@ -102,6 +102,12 @@ def test_classifiers_cover_every_python_ci_tests():
     assert tested <= classified, (
         f"CI tests {sorted(tested - classified)}, PyPI does not advertise it"
     )
+    # And the other way. A classifier is a claim someone installing acts on, so
+    # it may not run ahead of the matrix either: 3.14 worked for a year while
+    # PyPI said otherwise, and nothing here would have noticed the reverse.
+    assert classified <= tested, (
+        f"PyPI advertises {sorted(classified - tested)}, CI does not test it"
+    )
 
 
 @repo_only
