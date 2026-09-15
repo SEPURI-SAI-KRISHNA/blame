@@ -6,6 +6,24 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Added
+- `validation/run.py`: the harness behind `docs/validation.md`, now in the
+  repository and running on every pull request. It fetches the ten pandas
+  getting-started tutorials pinned to a pandas release, runs each one twice --
+  plain and inside `blame.trace()` -- and compares every frame the script
+  leaves behind with `pandas.testing.assert_frame_equal`. The page previously
+  described a harness nobody could run, so its numbers could not be checked by
+  anyone. ([#27](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/27))
+
+### Changed
+- `docs/validation.md` and the README report what the harness measures: ten
+  tutorials, 30 frames compared, 125 traced steps, **0 raised and 0 changed
+  results**, and 2 approximate steps. The README previously claimed "no
+  approximate steps", which was not true of the current corpus -- both come
+  from `take`, which is untraced, reached through `df.loc[mask, cols]` and
+  `groupby().head(n)`. That gap is pre-existing on every supported pandas and
+  is tracked separately.
+
 ## [0.1.3] - 2026-09-15
 
 ### Added

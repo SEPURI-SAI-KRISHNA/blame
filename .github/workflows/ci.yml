@@ -219,6 +219,32 @@ jobs:
           MPLBACKEND: Agg
         run: python -m pytest
 
+  validation:
+    # Real pandas code that nobody here wrote. Our own tests share our own
+    # assumptions about what a pipeline looks like; the pandas getting-started
+    # tutorials do not, which is why four defects turned up this way and are
+    # listed in docs/validation.md. Each tutorial runs twice, traced and
+    # untraced, and every frame it leaves behind is compared.
+    name: pandas tutorials
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install -e . matplotlib
+
+      - name: Run the corpus traced and untraced
+        env:
+          MPLBACKEND: Agg
+        # Fetches the tutorials from the pinned pandas tag, so it needs network.
+        run: ./.venv/bin/python validation/run.py
+
   package:
     runs-on: ubuntu-latest
     timeout-minutes: 15
