@@ -1185,3 +1185,37 @@ def test_a_failed_write_leaves_no_temp_file_behind(tmp_path):
 
     assert not target.exists()
     assert list(tmp_path.glob("*.tmp")) == [], "a failed write left a temp file"
+
+
+def test_a_refused_replace_accepts_the_file_that_is_already_there(tmp_path):
+    """Windows refuses to replace a file another process has open.
+
+    `os.replace` overwrites silently on POSIX, so the loser of a race wrote
+    identical bytes over identical bytes and nothing noticed. On Windows it
+    raises `PermissionError: [WinError 5]` while any process holds the
+    destination open -- and a reader of this store holds it open for as long as
+    it is loading that column. That turned a race two writers were expected to
+    survive into "lineage capture failed" and a run with steps missing.
+
+    Losing the race is not a failure: the filename is a content address, so a
+    destination that already exists holds exactly these bytes.
+    """
+    import os as os_module
+
+    from blame import _store
+
+    target = tmp_path / "col.arrow"
+    target.write_bytes(b"written by somebody else")
+
+    def refusing_replace(src, dst):
+        raise PermissionError(5, "Access is denied")
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(os_module, "replace", refusing_replace)
+    try:
+        _store._atomic_write(target, b"written by somebody else")  # must not raise
+    finally:
+        monkeypatch.undo()
+
+    assert target.read_bytes() == b"written by somebody else"
+    assert list(tmp_path.glob("*.tmp")) == [], "the losing writer left its temp file"

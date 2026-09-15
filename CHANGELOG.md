@@ -28,6 +28,16 @@ Notable changes to `pandas-blame`. Format follows
   `main` threw away the build record of the commit that had just become `main`.
 
 ### Fixed
+- Storing a column could fail on Windows when another process was reading the
+  same column. `os.replace` overwrites silently on POSIX, so the loser of a
+  race between two writers wrote identical bytes over identical bytes; on
+  Windows it raises `PermissionError: [WinError 5]` while any process holds the
+  destination open, and a reader holds it open for as long as it is loading
+  that column. That turned a race writers were meant to survive back into
+  "lineage capture failed" and a run with steps missing. The filename is a
+  content address, so a destination that already exists holds exactly those
+  bytes: losing the race is now treated as the write having succeeded.
+  Introduced by the fix for #33 and found by the Windows job added in #15.
 - Two processes tracing into the same `.blame` directory corrupted each
   other's runs. The store is content-addressed, so two writers holding the same
   column compute the same digest -- and the temporary file was named for that

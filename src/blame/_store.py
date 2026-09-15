@@ -121,7 +121,22 @@ def _atomic_write(path: Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as fh:
             fh.write(data)
-        os.replace(tmp, path)
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            # os.replace overwrites silently on POSIX but not on Windows, which
+            # refuses with WinError 5 while any process has the destination
+            # open -- and a reader of this store holds it open for as long as
+            # it is loading that column.
+            #
+            # Losing that race is not a failure here. The filename is a content
+            # address, so a destination that already exists holds exactly these
+            # bytes: the write is done, somebody else did it. Anything else is
+            # a real error and still raises.
+            if not path.exists():
+                raise
+            with contextlib.suppress(OSError):
+                os.unlink(tmp)
     except BaseException:
         with contextlib.suppress(OSError):
             os.unlink(tmp)
