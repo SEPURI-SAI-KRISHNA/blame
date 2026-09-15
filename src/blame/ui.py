@@ -174,8 +174,8 @@ def _handler(run, lock):
     class Handler(BaseHTTPRequestHandler):
         server_version = "blame"
 
-        def log_message(self, *args):  # a local UI should be quiet
-            pass
+        def log_message(self, format: str, *args: object) -> None:
+            pass  # a local UI should be quiet
 
         def _send(self, body: bytes, content_type: str, status: int = 200) -> None:
             self.send_response(status)
@@ -203,17 +203,25 @@ def _handler(run, lock):
                     if url.path == "/api/run":
                         self._json(run_payload(run))
                     elif url.path == "/api/frame":
+                        fid = arg("fid")
+                        if fid is None:
+                            self._json({"error": "fid is required"}, 400)
+                            return
                         self._json(
                             frame_payload(
                                 run,
-                                arg("fid"),
+                                fid,
                                 int(arg("offset", 0) or 0),
                                 min(int(arg("limit", PAGE_ROWS) or PAGE_ROWS), 2000),
                             )
                         )
                     elif url.path == "/api/why":
+                        fid = arg("fid")
+                        if fid is None:
+                            self._json({"error": "fid is required"}, 400)
+                            return
                         rows = [int(r) for r in (arg("rows", "") or "").split(",") if r != ""]
-                        self._json(explain_payload(run, arg("fid"), rows, arg("col") or None))
+                        self._json(explain_payload(run, fid, rows, arg("col") or None))
                     else:
                         self._json({"error": "not found"}, 404)
             except BrokenPipeError:

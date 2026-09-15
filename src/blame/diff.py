@@ -178,9 +178,9 @@ def _frame_delta(left, right, on, rtol):
         for col in shared:
             for i in np.flatnonzero(_ne_mask(a[col], b[col], rtol)):
                 hits.setdefault(int(i), []).append(col)
-        for i, cols in sorted(hits.items()):
-            ra, rb = a.iloc[i], b.iloc[i]
-            changed[common[i]] = [CellChange(str(c), ra[c], rb[c]) for c in cols]
+        for pos, cols in sorted(hits.items()):
+            ra, rb = a.iloc[pos], b.iloc[pos]
+            changed[common[pos]] = [CellChange(str(c), ra[c], rb[c]) for c in cols]
     return {
         "added": added,
         "removed": removed,
@@ -275,7 +275,7 @@ class Diff:
 
 def _source_frames(run):
     """Source frames of a run, keyed by label so two runs can be matched up."""
-    out = {}
+    out: dict[str, str] = {}
     for fid in run.sources:
         out.setdefault(run.nodes[fid].label, fid)
     return out

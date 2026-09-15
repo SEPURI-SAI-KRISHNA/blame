@@ -1373,3 +1373,34 @@ def test_groupby_nth_is_left_alone():
     with blame.trace():
         first = df.groupby("g").nth(0)
     assert len(first) == 3
+
+
+def test_the_ui_rejects_a_request_with_no_frame_id():
+    """`/api/frame` without `fid` used to reach the payload builder with None
+    and fail somewhere inside it as a 500. A missing required parameter is the
+    caller's mistake, and saying so is more useful than a stack trace."""
+    import json
+    import threading
+    import urllib.error
+    import urllib.request
+
+    from blame.ui import make_server
+
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    with blame.trace() as h:
+        _ = df[df.a > 1]
+
+    server = make_server(h.run, port=0)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        for path in ("/api/frame", "/api/why?rows=0"):
+            try:
+                with urllib.request.urlopen(base + path, timeout=10) as response:
+                    status, body = response.status, response.read()
+            except urllib.error.HTTPError as exc:
+                status, body = exc.code, exc.read()
+            assert status == 400, f"{path} answered {status}, not 400"
+            assert json.loads(body)["error"] == "fid is required"
+    finally:
+        server.shutdown()

@@ -886,7 +886,7 @@ def _h_reshape(t, name, parent, out, args, kwargs, elapsed, orig=None):
     """pivot, pivot_table, unstack: one output row per distinct index key."""
     if not _traceable(out) or not _traceable(parent):
         return
-    lineage = None
+    lineage: lin.Lineage | None = None
     try:
         if name == "unstack":
             level = kwargs.get("level", args[0] if args else -1)
@@ -915,6 +915,7 @@ def _h_melt(t, name, parent, out, args, kwargs, elapsed, orig=None):
     if not _traceable(out) or not _traceable(parent):
         return
     n = len(parent)
+    lineage: lin.Lineage
     if n and len(out) % n == 0:
         take = np.tile(np.arange(n, dtype=np.int64), len(out) // n)
         lineage = lin.Select(take)
@@ -927,6 +928,7 @@ def _h_melt(t, name, parent, out, args, kwargs, elapsed, orig=None):
 def _h_apply(t, name, parent, out, args, kwargs, elapsed, orig=None):
     if not _traceable(out) or not _traceable(parent):
         return
+    lineage: lin.Lineage
     if kwargs.get("axis") in (1, "columns") or len(out) == len(parent):
         lineage = lin.Identity(len(parent), approximate=True)
         t.warn(f"{name}: row identity assumed through a user function (approximate lineage)")

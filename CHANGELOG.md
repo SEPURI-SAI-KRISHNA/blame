@@ -7,6 +7,29 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Fixed
+- The typecheck job reported `Success` while checking a fraction of the code.
+  mypy skips the body of every unannotated function by default and 134 of this
+  package's functions are unannotated, so five real type errors sat behind a
+  green tick -- three of them in the lineage core. `check_untyped_defs` is on
+  and all five are fixed.
+  ([#22](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/22))
+- `query.py` read `ColumnRef.hash` and `ColumnRef.ref` without checking them.
+  Which one is populated is decided by `kind`, but only by convention -- both
+  are optional -- so a store written by anything else would have failed deep
+  inside a query. A column that cannot be rebuilt is now `None` rather than a
+  crash.
+- `/api/frame` and `/api/why` answered 500 from inside the payload builder when
+  `fid` was missing. A missing required parameter is the caller's mistake and
+  now says so with a 400.
+- `Handler.log_message` did not match the signature it overrides.
+
+### Added
+- `pyright` runs in CI alongside `mypy`. Most people consuming a `py.typed`
+  package are on pyright -- it is what Pylance runs in VS Code -- and mypy was
+  clean while pyright found 15 errors, seven of them in `query.py`, which is
+  what `why()` returns.
+
+### Fixed
 - `df.loc[...]` and `df.iloc[...]` recorded no step at all, in every form. The
   two commonest ways of subsetting a DataFrame simply vanished from the
   pipeline: `why()` on the result raised "that frame is not in this run", and
