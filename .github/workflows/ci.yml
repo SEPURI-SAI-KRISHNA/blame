@@ -7,12 +7,22 @@ on:
   schedule:
     # Monday morning: a tracer that monkeypatches pandas should hear about a
     # new pandas release from CI, not from a user's bug report.
+    #
+    # Every job carries `if: github.event_name != 'schedule' || github.repository
+    # == '<this repo>'`. A cron is inherited by every fork, and without that
+    # guard each one burns its owner's Actions minutes weekly without them ever
+    # asking for it. A fork's own pushes and pull requests still build.
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keyed on the PR number where there is one, so two pushes to the same PR
+  # collapse but a push to main and a PR from that same branch do not.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Superseding a PR push is right; superseding a push to main is not. That
+  # cancels the build of a commit that is now main, and the record of it is the
+  # thing you want to point at later.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Nothing here writes to the repo. Stated explicitly so a change to the
 # organisation-wide default cannot silently widen it.
@@ -22,6 +32,8 @@ permissions:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.1.0
@@ -34,6 +46,8 @@ jobs:
     # The package ships a py.typed marker, so its annotations are a promise to
     # every downstream type checker. This is what makes that promise honest.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.1.0
@@ -74,6 +88,8 @@ jobs:
   test:
     name: pandas ${{ matrix.pandas || 'latest' }} / py ${{ matrix.python }}
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     strategy:
       fail-fast: false
       matrix:
@@ -127,6 +143,8 @@ jobs:
     # named pandas_blame-<version>, which contains the string "pandas". That is
     # exactly the condition that once made the tracer record nothing at all.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.1.0
@@ -151,6 +169,8 @@ jobs:
     # job that checks them, rather than trusting whatever pip happens to resolve.
     name: dependency floor
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.1.0
@@ -176,6 +196,8 @@ jobs:
 
   package:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.1.0
