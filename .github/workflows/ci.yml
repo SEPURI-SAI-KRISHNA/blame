@@ -103,6 +103,7 @@ jobs:
           - {python: "3.11", pandas: "3.0.5", extra: ""}
           - {python: "3.12", pandas: "3.0.5", extra: ""}
           - {python: "3.13", pandas: "3.0.5", extra: ""}
+          - {python: "3.14", pandas: "3.0.5", extra: ""}
           # Unpinned: catches a new pandas release before users do.
           - {python: "3.12", pandas: "", extra: ""}
     steps:

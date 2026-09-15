@@ -7,6 +7,10 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Changed
+- Python 3.14 is tested in CI and declared in the trove classifiers. It has
+  worked since well before this release; nothing said so, so PyPI's metadata
+  suggested the opposite to anyone checking before installing.
+  ([#20](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/20))
 - CI no longer runs the weekly schedule on forks. A cron is inherited by every
   fork, so each one was spending its owner's Actions minutes on a schedule they
   never set up; a fork's own pushes and pull requests still build.
