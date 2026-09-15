@@ -8,9 +8,12 @@ on disk under the same hashes.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -101,6 +104,30 @@ class FrameData:
         )
 
 
+def _atomic_write(path: Path, data: bytes) -> None:
+    """Write `data` to `path` so another process sees all of it or none.
+
+    The temporary file has to be named for the *writer*, not the destination.
+    A content-addressed store invites the opposite: two processes holding the
+    same column compute the same digest, so a temp path derived from it is the
+    same path for both. One renames it away while the other is still about to,
+    and the loser fails with FileNotFoundError -- which surfaced as "lineage
+    capture failed" and a run with steps missing from it.
+
+    os.replace is atomic and overwrites, so the loser of the race writes the
+    same bytes over the same bytes instead of raising.
+    """
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
 class Store:
     def __init__(
         self,
@@ -141,9 +168,7 @@ class Store:
             sink = io.BytesIO()
             with ipc.new_stream(sink, table.schema, options=self.write_options) as w:
                 w.write_table(table)
-            tmp = path.with_suffix(".tmp")
-            tmp.write_bytes(sink.getvalue())
-            tmp.rename(path)
+            _atomic_write(path, sink.getvalue())
         self._seen.add(digest)
         return digest
 
@@ -247,11 +272,15 @@ class Store:
         d = self.runs_dir / run_id
         d.mkdir(parents=True, exist_ok=True)
         path = d / "manifest.json"
-        path.write_text(json.dumps(manifest, indent=2, default=str))
+        # Atomic for the same reason as a column, one step removed: a reader
+        # listing runs while this one is being written must not catch the file
+        # half-formed.
+        _atomic_write(path, json.dumps(manifest, indent=2, default=str).encode("utf-8"))
         return path
 
     def get_manifest(self, run_id: str) -> dict:
-        return json.loads((self.runs_dir / run_id / "manifest.json").read_text())
+        path = self.runs_dir / run_id / "manifest.json"
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def list_runs(self) -> list[str]:
         runs = [p.name for p in self.runs_dir.iterdir() if (p / "manifest.json").exists()]
