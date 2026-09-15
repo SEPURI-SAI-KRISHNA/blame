@@ -1,0 +1,58 @@
+name: CodeQL
+
+# Most of this package is pure computation, which is low risk. Three parts are
+# not: ui.py serves recorded data over HTTP, _store.py builds filesystem paths
+# out of a user-supplied root and a run id, and cli.py takes arguments from a
+# shell. None of those is a known defect -- the point is that nothing currently
+# looks at them.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Saturday, offset from the CI cron so the two do not queue against each
+    # other. Weekly rather than on-demand because a newly published query
+    # should reach this repository without waiting for someone to push.
+    - cron: "41 3 * * 6"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Nothing outside the analyze job needs any permission at all.
+permissions: {}
+
+jobs:
+  analyze:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # As in ci.yml: a cron is inherited by every fork, and without this each one
+    # spends its owner's Actions minutes on a schedule they never set up.
+    if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
+    permissions:
+      # Writing the findings into the Security tab is the whole job.
+      security-events: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          # Without this, actions/checkout leaves a credential in .git/config
+          # for the rest of the job, reachable by anything the job runs.
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@v4.38.0
+        with:
+          languages: python
+          # The default suite is security-only. This one adds the maintainability
+          # and correctness queries, which is the half more likely to say
+          # something useful about a library that is mostly computation.
+          queries: security-and-quality
+
+      # No autobuild step: Python is interpreted, so there is nothing to
+      # compile and the extractor reads the source directly.
+      - uses: github/codeql-action/analyze@v4.38.0
+        with:
+          category: /language:python

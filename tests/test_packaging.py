@@ -172,8 +172,16 @@ def _jobs(workflow: Path) -> dict[str, str]:
     return {name: body[bounds[i] : bounds[i + 1]] for i, (_, name) in enumerate(starts)}
 
 
+_WORKFLOW_DIR = ROOT / ".github" / "workflows"
+# Discovered rather than listed, so a workflow added later is covered by these
+# checks without anyone remembering to add it here.
+WORKFLOWS = (
+    sorted(p.name for p in _WORKFLOW_DIR.glob("*.yml")) if _WORKFLOW_DIR.is_dir() else ["ci.yml"]
+)
+
+
 @repo_only
-@pytest.mark.parametrize("workflow", ["ci.yml", "release.yml"])
+@pytest.mark.parametrize("workflow", WORKFLOWS)
 def test_every_job_declares_a_timeout(workflow):
     """GitHub's default is six hours.
 
@@ -186,19 +194,21 @@ def test_every_job_declares_a_timeout(workflow):
 
 
 @repo_only
-def test_the_scheduled_run_is_guarded_against_forks():
+@pytest.mark.parametrize("workflow", WORKFLOWS)
+def test_every_scheduled_run_is_guarded_against_forks(workflow):
     """A cron is inherited by every fork of the repository.
 
-    Without a guard each fork runs this workflow weekly, spending its owner's
-    Actions minutes on a schedule they never set up. The guard has to be on
-    every job: a job added without it silently reintroduces the problem for
-    everyone who has forked.
+    Without a guard each fork runs that workflow on schedule, spending its
+    owner's Actions minutes on something they never set up. The guard has to be
+    on every job of every workflow that has a cron: one job added without it
+    silently reintroduces the problem for everyone who has forked.
     """
-    path = ROOT / ".github" / "workflows" / "ci.yml"
-    assert "schedule:" in path.read_text(), "no cron here any more; drop this test"
+    path = ROOT / ".github" / "workflows" / workflow
+    if "schedule:" not in path.read_text():
+        pytest.skip(f"{workflow} has no cron")
     for name, block in _jobs(path).items():
         assert "github.event_name != 'schedule'" in block, (
-            f"job {name!r} runs on a fork's weekly cron"
+            f"{workflow}: job {name!r} runs on a fork's cron"
         )
 
 
@@ -212,3 +222,30 @@ def test_only_pull_request_builds_are_cancelled():
     ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
     line = next(ln for ln in ci.splitlines() if "cancel-in-progress:" in ln)
     assert "github.event_name == 'pull_request'" in line, f"unconditional cancel: {line.strip()}"
+
+
+@repo_only
+def test_dependabot_watches_the_action_pins():
+    """Every workflow pins its actions to an exact release tag, which is what
+    makes the supply chain reviewable. Pins rot: without something watching
+    them, "pinned" quietly becomes "stuck on a version with a known problem".
+    """
+    config = (ROOT / ".github" / "dependabot.yml").read_text()
+    assert "github-actions" in config, "nothing watches the action pins"
+    # Dependabot's default subject line is "Bump x from a to b", which does not
+    # parse as a conventional commit -- and the PR title check would reject it.
+    assert "chore(deps)" in config, "dependabot's PR titles would not follow the convention"
+
+
+@repo_only
+def test_codeql_writes_its_findings_where_they_can_be_read():
+    """A security workflow that cannot upload results is decoration.
+
+    It needs security-events: write, and it must be scoped to that job rather
+    than granted to the whole workflow.
+    """
+    path = ROOT / ".github" / "workflows" / "codeql.yml"
+    text = path.read_text()
+    assert "permissions: {}" in text, "the workflow default should grant nothing"
+    for name, block in _jobs(path).items():
+        assert "security-events: write" in block, f"job {name!r} cannot upload its findings"

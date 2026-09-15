@@ -1,10 +1,32 @@
 version: 2
+
 updates:
+  # Every workflow here pins its actions to an exact release tag, which is what
+  # makes the supply chain reviewable. Pins rot: without something watching
+  # them, "pinned" quietly becomes "stuck on a version with a known problem".
   - package-ecosystem: github-actions
-    directory: "/"
-    schedule: {interval: monthly}
-    commit-message: {prefix: "ci"}
-  - package-ecosystem: pip
-    directory: "/"
-    schedule: {interval: monthly}
-    commit-message: {prefix: "deps"}
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    # Both are what Dependabot applies on its own; declared so a rename on the
+    # label side does not silently leave these PRs unlabelled.
+    labels:
+      - dependencies
+      - github_actions
+    commit-message:
+      # The repository uses Conventional Commits. Dependabot's default subject
+      # is "Bump x from a to b", which does not parse.
+      prefix: chore(deps)
+    groups:
+      # One PR a week rather than one per action. These move together and are
+      # reviewed together.
+      actions:
+        patterns:
+          - "*"
+
+# Deliberately no `pip` entry. The runtime dependencies are open lower bounds
+# (pandas>=2.0, pyarrow>=14, numpy>=1.24), which is what a library should
+# publish -- there is no lockfile for Dependabot to bump, and raising a floor is
+# a compatibility decision, not a routine update. The `floor` job in ci.yml is
+# what checks those bounds are honest.
