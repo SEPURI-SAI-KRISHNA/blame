@@ -7,6 +7,12 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Changed
+- CI runs the suite on Windows and macOS. Every job ran on Linux, while the
+  package declared no platform restriction and PyPI served it to everyone. The
+  tracer decides whose code a stack frame belongs to by comparing filesystem
+  paths as strings, which is the most platform-sensitive thing in it -- and the
+  fix for the path-attribution bug in 0.1.2 was written and checked on Linux
+  only. ([#15](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/15))
 - Python 3.14 is tested in CI and declared in the trove classifiers. It has
   worked since well before this release; nothing said so, so PyPI's metadata
   suggested the opposite to anyone checking before installing.

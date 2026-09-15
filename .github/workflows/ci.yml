@@ -86,8 +86,10 @@ jobs:
           echo "downstream type checking works"
 
   test:
-    name: pandas ${{ matrix.pandas || 'latest' }} / py ${{ matrix.python }}
-    runs-on: ubuntu-latest
+    # The os suffix appears only for the non-Linux legs, so the Linux check
+    # names are byte-identical to what the branch ruleset already requires.
+    name: pandas ${{ matrix.pandas || 'latest' }} / py ${{ matrix.python }}${{ matrix.os && format(' / {0}', matrix.os) || '' }}
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     timeout-minutes: 25
     if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     strategy:
@@ -106,6 +108,14 @@ jobs:
           - {python: "3.14", pandas: "3.0.5", extra: ""}
           # Unpinned: catches a new pandas release before users do.
           - {python: "3.12", pandas: "", extra: ""}
+          # The tracer decides whose code a stack frame belongs to by comparing
+          # filesystem paths as strings, which is the most platform-sensitive
+          # thing in the package -- and the fix for #1 was written and checked
+          # on Linux only. One representative leg each rather than a full
+          # matrix: the question is whether the path logic holds, not whether
+          # pandas 2.0.3 differs from 2.2.3 on a Mac.
+          - {os: "windows-latest", python: "3.12", pandas: "", extra: ""}
+          - {os: "macos-latest", python: "3.12", pandas: "", extra: ""}
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.1.0
@@ -113,26 +123,40 @@ jobs:
           enable-cache: true
 
       - name: Install
+        # bash on every platform: the Windows runner defaults to PowerShell,
+        # where none of this parses. uv finds ./.venv on its own, so nothing
+        # here has to put a platform-shaped path on PATH.
+        shell: bash
+        env:
+          PANDAS: ${{ matrix.pandas }}
+          EXTRA: ${{ matrix.extra }}
+          PYTHON: ${{ matrix.python }}
         run: |
-          uv venv --python ${{ matrix.python }}
-          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
-          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+          uv venv --python "$PYTHON"
           uv pip install -e ".[dev]" matplotlib
-          if [ -n "${{ matrix.pandas }}" ]; then
-            uv pip install "pandas==${{ matrix.pandas }}"
+          if [ -n "$PANDAS" ]; then
+            uv pip install "pandas==$PANDAS"
           fi
-          if [ -n "${{ matrix.extra }}" ]; then
-            uv pip install "${{ matrix.extra }}"
+          if [ -n "$EXTRA" ]; then
+            uv pip install "$EXTRA"
           fi
+          # Windows puts the interpreter in Scripts, not bin. Recorded as a
+          # relative path so every later step can use it unchanged.
+          PY=.venv/bin/python
+          [ -x "$PY" ] || PY=.venv/Scripts/python.exe
+          echo "PY=$PY" >> "$GITHUB_ENV"
 
       - name: Versions under test
+        shell: bash
         run: |
-          python -c "import sys, pandas, numpy, pyarrow; print(sys.version); print('pandas', pandas.__version__, '| numpy', numpy.__version__, '| pyarrow', pyarrow.__version__)"
+          "$PY" -c "import sys, pandas, numpy, pyarrow; print(sys.version); print('pandas', pandas.__version__, '| numpy', numpy.__version__, '| pyarrow', pyarrow.__version__)"
 
       - name: Test
+        shell: bash
         env:
           MPLBACKEND: Agg
-        run: python -m pytest
+        run: |
+          "$PY" -m pytest
 
   sdist:
     # Downstream packagers -- Debian, conda-forge, Homebrew, Nix -- build from
