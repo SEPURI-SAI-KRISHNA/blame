@@ -1279,3 +1279,97 @@ def test_a_trace_from_a_newer_version_fails_with_a_clear_message(tmp_path):
 
     with pytest.raises(RuntimeError, match=r"store format 999.*reads format 1"):
         blame.load(h.run.run_id, root=tmp_path / "bl")
+
+
+def _with_source_ids(n=6, index=None):
+    df = pd.DataFrame(
+        {
+            "g": ["a", "b", "a", "b", "c", "a"][:n],
+            "v": [1, 2, 3, 4, 5, 6][:n],
+            "w": [9.0, 8, 7, 6, 5, 4][:n],
+        }
+    )
+    if index is not None:
+        df.index = index
+    df["_src"] = range(len(df))
+    return df
+
+
+def _lineage_of(fn, index=None):
+    """Run `fn` traced and return (what why() says, the ground truth)."""
+    df = _with_source_ids(index=index)
+    with blame.trace() as h:
+        out = fn(df)
+    want = sorted(int(x) for x in np.asarray(out["_src"]))
+    explanation = h.run.why(row=list(range(len(out))), target=out)
+    got = sorted(int(x) for rows in explanation.sources.values() for x in rows)
+    return got, want, explanation.approximate
+
+
+@pytest.mark.parametrize(
+    ("label", "fn"),
+    [
+        ("iloc slice", lambda d: d.iloc[1:4]),
+        ("iloc list", lambda d: d.iloc[[0, 3, 5]]),
+        ("iloc step", lambda d: d.iloc[::2]),
+        ("iloc negative", lambda d: d.iloc[-2:]),
+        ("iloc rows and cols", lambda d: d.iloc[1:4, :]),
+        ("loc mask", lambda d: d.loc[d.v > 2]),
+        ("loc mask and cols", lambda d: d.loc[d.v > 2, ["w", "_src"]]),
+        ("groupby head", lambda d: d.groupby("g").head(2)),
+        ("groupby tail", lambda d: d.groupby("g").tail(1)),
+    ],
+)
+def test_indexers_and_groupby_rows_are_exact(label, fn):
+    """`.loc` and `.iloc` recorded no step at all before, so the two commonest
+    ways of subsetting a frame vanished from the pipeline and `why()` refused
+    to answer about their results. `groupby().head()` was the same.
+
+    Ground truth rather than our own output: a hidden `_src` column rides along
+    and pandas moves it with the rows, so the correct answer is whatever ids
+    come out the far end.
+    """
+    got, want, approximate = _lineage_of(fn)
+    assert got == want, f"{label}: lineage {got} != ground truth {want}"
+    assert not approximate, f"{label}: exact lineage was reported as approximate"
+
+
+@pytest.mark.parametrize(
+    ("label", "fn"),
+    [
+        ("loc mask", lambda d: d.loc[d.v > 2]),
+        ("iloc slice", lambda d: d.iloc[1:4]),
+        ("groupby head", lambda d: d.groupby("g").head(2)),
+        ("groupby tail", lambda d: d.groupby("g").tail(1)),
+    ],
+)
+def test_indexers_stay_exact_on_a_duplicated_index(label, fn):
+    """A duplicated index is what defeats row-matching by index, and it is what
+    you get from `concat`, from `melt`, or from reading any file keyed on a
+    non-unique column. `groupby().head()` is answered from the group's
+    positional indices, which do not care what the index looks like.
+    """
+    got, want, approximate = _lineage_of(fn, index=[0, 0, 1, 1, 2, 2])
+    assert got == want, f"{label}: lineage {got} != ground truth {want}"
+    assert not approximate, f"{label}: exact lineage was reported as approximate"
+
+
+def test_a_single_row_indexer_records_no_false_lineage():
+    """`df.iloc[2]` hands back the row transposed into a Series, whose length
+    is the column count. Recording that as a row selection would claim a
+    lineage that is not there, so nothing is recorded."""
+    df = _with_source_ids()
+    with blame.trace() as h:
+        row = df.iloc[2]
+    assert isinstance(row, pd.Series)
+    assert [s.op for s in h.run.steps if s.op in ("loc", "iloc")] == []
+
+
+def test_groupby_nth_is_left_alone():
+    """`GroupBy.nth` is a property in pandas 3 and a method in pandas 2.
+    Wrapping a property breaks the user's code with "'property' object is not
+    callable", which is worse than not tracing it."""
+    df = _with_source_ids()
+    with blame.trace():
+        first = df.groupby("g").nth(0)
+    assert len(first) == 3

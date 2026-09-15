@@ -16,53 +16,42 @@ two with `pandas.testing.assert_frame_equal`.
 |---|---|---|---|
 | 01_table_oriented | 2 | 2 | 0 |
 | 02_read_write | 1 | 2 | 0 |
-| 03_subset_data | 7 | 26 | 1 |
+| 03_subset_data | 7 | 28 | 0 |
 | 04_plotting | 1 | 2 | 0 |
 | 05_add_columns | 2 | 10 | 0 |
 | 06_calculate_statistics | 1 | 11 | 0 |
-| 07_reshape_table_layout | 6 | 22 | 1 |
+| 07_reshape_table_layout | 6 | 22 | 0 |
 | 08_combine_dataframes | 6 | 17 | 0 |
 | 09_timeseries | 3 | 19 | 0 |
 | 10_text_data | 1 | 14 | 0 |
-| **total** | **30** | **125** | **2** |
+| **total** | **30** | **127** | **0** |
 
 | | result |
 |---|---|
 | scripts that raised under tracing | **0 of 10** |
 | scripts whose results changed | **0 of 10** |
 | frames compared | 30 |
-| traced steps | 125 |
-| steps that were approximate | 2 |
+| traced steps | 127 |
+| steps that were approximate | **0** |
 
 Tracing changes nothing about what the tutorials compute. That is the claim
 that matters most: a lineage tool that alters your results is worse than no
 lineage tool.
 
-### The two approximate steps
+### No approximate steps
 
-Both are `take`, which `blame` does not trace, reached from ordinary code:
+There were two when this harness first ran, both pandas' internal `take`
+showing through from `df.loc[mask, cols]` and `groupby().head(n)` -- neither of
+which recorded a step of its own. `.loc` and `.iloc` are now traced directly
+and `groupby().head`/`tail` are answered from the group's positional indices,
+so both are exact. The step count rose from 125 to 127 because two `.iloc`
+calls in `03_subset_data` that previously recorded nothing now appear as the
+operations they are.
 
-- `03_subset_data`: `titanic.loc[titanic["Age"] > 35, "Name"]`
-- `07_reshape_table_layout`: `no2.sort_index().groupby(["location"]).head(2)`
-
-pandas implements `.loc` with a boolean mask and `groupby().head()` through
-`take`, so lineage through them widens to every input row rather than being
-exact. This is a **coverage gap, not a wrong answer** — asked directly, `blame`
-says so rather than guessing:
-
-```
-KeyError: that frame is not in this run -- whatever produced it is not an
-operation blame traces, so it has no recorded lineage.
-```
-
-It is not a regression either: the same two operations record nothing on pandas
-2.0.3, 2.2.3 and 3.0.5 alike. Tracked separately.
-
-An earlier version of this page reported eight tutorials, 83 steps and zero
-approximate steps, and counted pandas calls made against calls handled. Those
-figures came from a harness that was never committed and covered a smaller
-selection with extra instrumentation. The numbers above are what the committed
-harness measures, so they can be checked.
+That is the useful shape of a step-count change: it should move only when a
+line of *your* code starts or stops being recorded. A jump without one means
+pandas' internal calls have started masquerading as user steps, which is what
+`explode` and `stack` once did.
 
 ## What this approach found
 

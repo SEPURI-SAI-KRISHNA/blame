@@ -10,7 +10,9 @@ Lineage is **exact** for filters, slices (positional and label), sorts, joins,
 group-bys, `resample`, concats, the reshapes (`pivot`, `pivot_table`, `melt`,
 `unstack`), column projections and the row-preserving transforms (`assign`,
 `rename`, `astype`, `fillna`, ...) — including on frames whose index has
-duplicates.
+duplicates. That includes `.loc` and `.iloc` in every form that selects a set
+of rows -- a boolean mask, a positional or label slice, a list -- and
+`groupby(...).head(n)` / `.tail(n)`.
 
 It is **approximate** in two situations, and says so in both:
 

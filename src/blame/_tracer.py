@@ -516,9 +516,16 @@ _PATCHES: list[tuple[object, str, object]] = []
 
 def _install(owner, name: str, factory) -> None:
     try:
-        orig = getattr(owner, name)
+        orig = inspect.getattr_static(owner, name)
     except AttributeError:
         return
+    # Some of these are properties rather than methods, and differ by pandas
+    # version -- GroupBy.nth is a method in pandas 2 and a property in 3.
+    # Wrapping one produces "'property' object is not callable" the first time
+    # the user touches it, which breaks their pipeline rather than ours.
+    if not callable(orig) or isinstance(orig, (property, staticmethod, classmethod)):
+        return
+    orig = getattr(owner, name)
     wrapper = factory(orig, name)
     functools.update_wrapper(wrapper, orig)
     wrapper.__blame_original__ = orig
@@ -589,6 +596,169 @@ def _h_rows(t, name, parent, out, args, kwargs, elapsed, orig=None):
             f"(duplicate index and no safe replay); lineage is approximate"
         )
     t.record(name, [parent], out, lineage, _detail(args, kwargs), _column_map(parent, out), elapsed)
+
+
+def _indexer_rows(parent, key, positional: bool):
+    """Positions in `parent` that `key` selects, or None if it cannot be read.
+
+    Only the forms where the answer is exact by construction: a boolean mask
+    and, for `iloc`, an integer slice or array. Anything else -- a label slice,
+    a list of labels -- is left to the index-matching path, which already knows
+    how to handle a duplicated index.
+    """
+    import pandas as pd
+
+    n = len(parent)
+    if isinstance(key, tuple):  # .loc[rows, cols]
+        key = key[0] if key else None
+
+    if isinstance(key, (pd.Series, pd.Index, np.ndarray, list)) and not isinstance(key, str):
+        arr = np.asarray(key)
+        if arr.dtype == bool and len(arr) == n:
+            return np.flatnonzero(arr).astype(np.int64)
+        if positional and arr.dtype.kind in "iu":
+            return np.arange(n, dtype=np.int64)[arr]
+        return None
+
+    if isinstance(key, slice):
+        if positional:
+            return np.arange(n, dtype=np.int64)[key]
+        return None  # a label slice: the index knows, we do not
+
+    return None
+
+
+def _scalar_row_key(key) -> bool:
+    """Does this key pick one row rather than a set of them?"""
+    import pandas as pd
+
+    if isinstance(key, tuple):
+        key = key[0] if key else None
+    return not isinstance(key, (slice, list, np.ndarray, pd.Series, pd.Index, type(None)))
+
+
+def _h_indexer(t, name, indexer, out, args, kwargs, elapsed, orig=None):
+    """`df.loc[...]` and `df.iloc[...]`.
+
+    The receiver here is the indexer object rather than the frame, so the
+    frame comes off it. Without this, the two most common ways anyone subsets a
+    DataFrame recorded no step at all: the operation vanished from the
+    pipeline, and pandas' internal `take` showed through as an approximate hop
+    belonging to nothing the user wrote.
+    """
+    parent = getattr(indexer, "obj", None)
+    if not _traceable(out) or not _traceable(parent):
+        return
+    # `name` here is "__getitem__"; pandas labels the indexer itself, and that
+    # is also what decides whether the key is positional.
+    kind = getattr(indexer, "name", None) or "loc"
+    key = args[0] if args else None
+    if _scalar_row_key(key):
+        # df.iloc[2] hands back the row transposed into a Series, whose length
+        # is the column count. There is no row mapping to record, and the
+        # general path would invent an approximate one.
+        return
+    take = _indexer_rows(parent, key, positional=kind == "iloc")
+    if take is not None and len(take) == len(out):
+        label = "filter" if _is_mask(parent, key) else kind
+        t.record(
+            label,
+            [parent],
+            out,
+            lin.Select(take),
+            _detail((key,), {}),
+            _column_map(parent, out),
+            elapsed,
+        )
+        return
+    # len(out) != len(take) means the key selected a single row and pandas
+    # returned it transposed as a Series. Recording that as a row selection
+    # would claim a lineage that is not there.
+    if take is not None and len(take) != len(out):
+        return
+    _h_rows(t, kind, parent, out, (key,), {}, elapsed, orig)
+
+
+def _is_mask(parent, key) -> bool:
+    import pandas as pd
+
+    if isinstance(key, tuple):
+        key = key[0] if key else None
+    if isinstance(key, (pd.Series, pd.Index, np.ndarray, list)) and not isinstance(key, str):
+        arr = np.asarray(key)
+        return bool(arr.dtype == bool and len(arr) == len(parent))
+    return False
+
+
+def _gb_row_take(gb, name: str, args: tuple, kwargs: dict):
+    """Exact positions for `groupby(...).head(n)` / `.tail(n)`.
+
+    `gb.indices` gives each group's positional indices into the parent, so the
+    answer is exact regardless of what the index looks like. That matters: a
+    duplicated index is what defeats the general row-matching path, and it is
+    what you get from `concat`, from `melt`, or from reading any file keyed on
+    a non-unique column.
+
+    Both methods return rows in the parent's order, not grouped order, so the
+    positions are sorted. Only non-negative n is handled here -- pandas reads a
+    negative n as "all but", and guessing at that would be worse than falling
+    back on the general path.
+    """
+    n = kwargs.get("n", args[0] if args else 5)
+    if not isinstance(n, (int, np.integer)) or isinstance(n, bool) or n < 0:
+        return None
+    picks = []
+    for idx in gb.indices.values():
+        idx = np.asarray(idx, dtype=np.int64)
+        picks.append(idx[:n] if name == "head" else idx[len(idx) - n :])
+    if not picks:
+        return np.empty(0, dtype=np.int64)
+    return np.sort(np.concatenate(picks))
+
+
+def _gb_rows_factory(orig, name):
+    """`groupby(...).head(n)` and friends: rows of the original frame, kept.
+
+    These select existing rows without changing them, so the lineage is exact
+    -- but the receiver is the GroupBy, and the frame it came from is only
+    reachable through the parent link `_groupby_factory` left on it.
+    """
+
+    def wrapper(self, *args, **kwargs):
+        t = _active_here()
+        if t is None or t._depth > 0 or not _user_call():
+            return orig(self, *args, **kwargs)
+        t._depth += 1
+        try:
+            start = time.perf_counter()
+            try:
+                out = orig(self, *args, **kwargs)
+            finally:
+                elapsed = time.perf_counter() - start
+            try:
+                parent = self.__dict__.get("_blame_parent")
+                if parent is not None and _traceable(out) and _traceable(parent):
+                    label = f"groupby.{name}"
+                    take = _gb_row_take(self, name, args, kwargs)
+                    if take is not None and len(take) == len(out):
+                        t.record(
+                            label,
+                            [parent],
+                            out,
+                            lin.Select(take),
+                            self.__dict__.get("_blame_keys", "") or _detail(args, kwargs),
+                            _column_map(parent, out),
+                            elapsed,
+                        )
+                    else:
+                        _h_rows(t, label, parent, out, args, kwargs, elapsed, orig)
+            except Exception as exc:  # never break the user's pipeline
+                t.warn(f"groupby.{name}: lineage capture failed ({type(exc).__name__}: {exc})")
+        finally:
+            t._depth -= 1
+        return out
+
+    return wrapper
 
 
 def _h_getitem(t, name, parent, out, args, kwargs, elapsed, orig=None):
@@ -1172,7 +1342,22 @@ def _install_all() -> None:
     # resample is a group-by over time bins: same machinery, and `.indices`
     # gives the bin membership directly. __getitem__ must carry the parent
     # across or df.resample("D")["v"].sum() loses its link to the source.
+    from pandas.core.indexing import _iLocIndexer, _LocIndexer
     from pandas.core.resample import Resampler
+
+    # .loc and .iloc are the two commonest ways to subset a frame and neither
+    # recorded a step before, so the operation vanished from the pipeline and
+    # pandas' internal take showed through as an approximate hop belonging to
+    # nothing the user wrote. The indexer is its own object, so it is patched
+    # directly rather than through DataFrame.
+    _install(_LocIndexer, "__getitem__", _simple(_h_indexer))
+    _install(_iLocIndexer, "__getitem__", _simple(_h_indexer))
+
+    # head and tail on a GroupBy keep existing rows, so the lineage is exact.
+    # nth is deliberately absent: it is a property in pandas 3.
+    for gb_cls in (DataFrameGroupBy, SeriesGroupBy):
+        for op in ("head", "tail"):
+            _install(gb_cls, op, _gb_rows_factory)
 
     _install(Resampler, "__getitem__", _gb_getitem_factory)
     for op in _AGG_OPS:

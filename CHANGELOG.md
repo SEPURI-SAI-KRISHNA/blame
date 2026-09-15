@@ -6,6 +6,23 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- `df.loc[...]` and `df.iloc[...]` recorded no step at all, in every form. The
+  two commonest ways of subsetting a DataFrame simply vanished from the
+  pipeline: `why()` on the result raised "that frame is not in this run", and
+  when it fed a later operation, pandas' internal `take` showed through as an
+  approximate hop belonging to nothing the user wrote. Both are now traced with
+  exact lineage -- boolean masks, positional and label slices, lists, and the
+  `[rows, cols]` form. ([#45](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/45))
+- `groupby(...).head(n)` and `.tail(n)` were untraced for the same reason. They
+  are now answered from the group's positional indices, so the lineage is exact
+  even when the index has duplicates -- which is what you get from `concat`,
+  from `melt`, or from reading any file keyed on a non-unique column.
+- `_install` refuses to wrap anything that is not a plain method. `GroupBy.nth`
+  is a method in pandas 2 and a property in pandas 3; wrapping the property
+  raised `'property' object is not callable` the first time a user touched it,
+  breaking their pipeline rather than ours.
+
 ### Added
 - `validation/run.py`: the harness behind `docs/validation.md`, now in the
   repository and running on every pull request. It fetches the ten pandas
