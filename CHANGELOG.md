@@ -6,6 +6,19 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Added
+- The command line has tests. All seven subcommands, their flags and their
+  failure paths, driven through `main(argv)` in-process: `cli.py` goes from 0%
+  to 99% covered, and overall coverage from 81% to 89%.
+  ([#23](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/23))
+
+### Changed
+- The CLI reports a caller's mistake as one line on stderr instead of a
+  traceback. A row that does not exist, an unknown `--target` and a step index
+  past the end of the run each printed a raw `IndexError` or `KeyError`; they
+  now print what went wrong and exit 1. `blame at 999` says how many steps the
+  run actually has.
+
 ### Fixed
 - The typecheck job reported `Success` while checking a fraction of the code.
   mypy skips the body of every unannotated function by default and 134 of this
