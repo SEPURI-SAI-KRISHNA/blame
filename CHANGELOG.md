@@ -6,6 +6,28 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Added
+- The workflow files are audited on every pull request. They were the one part
+  of this repository nothing read, and they are the part that runs with a
+  token, checks the repository out and executes third-party code on every push.
+  `zizmor` at `persona: pedantic` and `actionlint` both run in the `lint` job;
+  exceptions live in `.github/zizmor.yml` with the reason written next to each
+  one. ([#25](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/25))
+
+### Changed
+- Every action is pinned to a commit rather than a tag, with the version in a
+  trailing comment. A tag can be moved to point at different code; a commit
+  cannot. The one exception is `pypa/gh-action-pypi-publish`, which runs a
+  Docker image published only for release tags -- a SHA there gives `manifest
+  unknown` and no release can be published at all.
+- Every `actions/checkout` sets `persist-credentials: false`. Without it a
+  credential is left in `.git/config` for the rest of the job, readable by
+  everything that runs afterwards -- which in this repository means pandas,
+  matplotlib and their transitive dependencies.
+- `release.yml` runs one release at a time and never cancels one. Cancelling a
+  run that has already uploaded leaves a version on PyPI whose build was killed
+  halfway through, and PyPI will not accept that filename a second time.
+
 ### Changed
 - A release is tested before it is published. `release.yml` installs the wheel
   it has just built and runs the suite against that, so a tagged commit whose

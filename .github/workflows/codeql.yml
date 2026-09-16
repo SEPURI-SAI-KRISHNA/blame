@@ -32,18 +32,17 @@ jobs:
     # spends its owner's Actions minutes on a schedule they never set up.
     if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     permissions:
-      # Writing the findings into the Security tab is the whole job.
-      security-events: write
-      contents: read
+      security-events: write  # writing findings into the Security tab is the whole job
+      contents: read  # the extractor reads the source
 
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Without this, actions/checkout leaves a credential in .git/config
           # for the rest of the job, reachable by anything the job runs.
           persist-credentials: false
 
-      - uses: github/codeql-action/init@v4.38.0
+      - uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           languages: python
           # The default suite is security-only. This one adds the maintainability
@@ -53,6 +52,6 @@ jobs:
 
       # No autobuild step: Python is interpreted, so there is nothing to
       # compile and the extractor reads the source directly.
-      - uses: github/codeql-action/analyze@v4.38.0
+      - uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
         with:
           category: /language:python

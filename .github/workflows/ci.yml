@@ -35,12 +35,46 @@ jobs:
     timeout-minutes: 10
     if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       - run: uvx ruff check --output-format=github .
       - run: uvx ruff format --check --diff .
+
+      # The workflows are part of the attack surface and were the one part of
+      # this repository nothing looked at: they run with a token, check the
+      # repository out, and execute third-party code on every push. zizmor
+      # reads them the way an attacker would.
+      #
+      # Exceptions live in .github/zizmor.yml, each with its reason written
+      # next to it. GH_TOKEN enables the audits that need to ask GitHub about
+      # an action -- whether a pinned ref still exists, whether it has a known
+      # advisory -- which are the ones that go stale silently without it.
+      - name: Audit the workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uvx zizmor --persona=pedantic --format=github .github/workflows/
+
+      # Shell mistakes and bad expressions inside `run:` blocks, which YAML
+      # parsing does not see and zizmor is not looking for.
+      #
+      # Downloaded and checksummed rather than run as an action: actionlint's
+      # only PyPI packaging ships an sdist that needs a Go toolchain, and the
+      # upstream installer is a curl piped into bash from a moving branch.
+      # Four lines and a digest is less machinery than either.
+      - name: Lint the workflow syntax
+        env:
+          ACTIONLINT_VERSION: "1.7.12"
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o actionlint.tgz "$url"
+          echo "${ACTIONLINT_SHA256}  actionlint.tgz" | sha256sum -c -
+          tar xzf actionlint.tgz actionlint
+          ./actionlint -color
 
   typecheck:
     # The package ships a py.typed marker, so its annotations are a promise to
@@ -49,8 +83,10 @@ jobs:
     timeout-minutes: 15
     if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       - name: Install
@@ -124,8 +160,10 @@ jobs:
           - {os: "windows-latest", python: "3.12", pandas: "", extra: ""}
           - {os: "macos-latest", python: "3.12", pandas: "", extra: ""}
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
@@ -178,8 +216,10 @@ jobs:
     timeout-minutes: 20
     if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       - run: uv build --sdist
@@ -204,8 +244,10 @@ jobs:
     timeout-minutes: 20
     if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
@@ -237,8 +279,10 @@ jobs:
     timeout-minutes: 15
     if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       - name: Install
@@ -259,8 +303,10 @@ jobs:
     timeout-minutes: 15
     if: github.event_name != 'schedule' || github.repository == 'SEPURI-SAI-KRISHNA/blame'
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       - run: uv build
       - run: uvx twine check --strict dist/*
 
@@ -287,7 +333,7 @@ jobs:
           PY
           /tmp/wheelcheck/bin/blame --root /tmp/ci-blame steps
 
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
