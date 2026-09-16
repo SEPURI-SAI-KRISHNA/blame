@@ -7,6 +7,27 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Changed
+- **Breaking:** `pyarrow>=23.0.1` is now the floor, raised from `pyarrow>=14`.
+  The old range admitted two versions with published advisories, and `blame` is
+  in the path of both: `_store.py` reads Arrow IPC on every query.
+  [CVE-2023-47248](https://github.com/advisories/GHSA-5wvp-7f3h-6wmm) is an
+  arbitrary-code-execution bug in versions below 14.0.1, and
+  [CVE-2026-25087](https://github.com/advisories/GHSA-rgxp-2hwp-jwgg) a
+  use-after-free reading an IPC file, fixed in 23.0.1. A lower bound cannot
+  exclude a middle range, so closing the second one means moving past it.
+  `pyarrow` 23.0.1 requires Python 3.10, which is this project's own floor, so
+  no Python version is dropped -- but an environment pinned to `pyarrow` 14
+  through 22 will not resolve. ([#60](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/60))
+- The `floor` job installed `pyarrow==14.0.0` on every run, which is to say it
+  installed a version with a critical advisory on every run.
+
+### Added
+- `SECURITY.md` says what a `.blame/` store from someone else is: untrusted
+  input handed to a deserializer written in C++. `blame load` takes a run id,
+  which makes "send me your `.blame/`" a natural request, and the page
+  previously described that directory only as *your* data.
+
+### Changed
 - Dependabot watches the pre-commit hook revisions as well as the action pins,
   grouped into one pull request a week with the same seven-day cooldown. The
   hooks were pinned with nothing to move them: `pre-commit autoupdate` only

@@ -8,7 +8,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "blame contributors" }]
 keywords = ["pandas", "lineage", "provenance", "debugging", "dataframe", "data-quality"]
-dependencies = ["pandas>=2.0", "pyarrow>=14", "numpy>=1.24"]
+dependencies = ["pandas>=2.0", "pyarrow>=23.0.1", "numpy>=1.24"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
