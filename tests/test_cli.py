@@ -151,8 +151,26 @@ def test_a_step_that_does_not_exist_is_reported_not_raised(store, capsys):
 def test_a_row_that_does_not_exist_is_reported_not_raised(store, capsys):
     code, _, err = run(capsys, "why", "999")
     assert code == 1
-    assert err.startswith("blame:"), f"expected one clean line, got {err!r}"
     assert "Traceback" not in err
+    assert "no row 999" in err and "row(s)" in err, (
+        f"the message should name the frame and its size, got {err!r}"
+    )
+
+
+def test_forward_refuses_a_row_the_source_does_not_have(store, capsys):
+    """`blame forward 99` on a four-row input used to print `[99]` as though
+    that row existed."""
+    code, out, err = run(capsys, "forward", "99")
+    assert code == 1, f"it answered instead of refusing:\n{out}"
+    assert "no row 99" in err
+
+
+def test_forward_accepts_a_negative_row(store, capsys):
+    """-1 is the last row, as everywhere else in Python."""
+    _, last, _ = run(capsys, "forward", "3")
+    code, out, err = run(capsys, "forward", "-1")
+    assert code == 0, err
+    assert out == last
 
 
 def test_a_missing_store_is_reported_not_raised(tmp_path, monkeypatch, capsys):
