@@ -46,4 +46,3 @@ write time, not disk: zstd shrinks an int64 column 2.3x but takes 14x longer to
 write it. Pass `compression="zstd"` or `"lz4"` if you would rather have the
 space, and `sample_rows=N` to cap how much of very large frames gets stored
 (lineage stays exact either way).
-

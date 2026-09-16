@@ -1,0 +1,48 @@
+# The checks a contributor runs before a commit exists, and the same list CI
+# runs on every pull request: the lint job is `pre-commit run --all-files`.
+#
+# One list on purpose. With two, a local hook reformats code that CI then
+# rejects, or a linter release turns an unrelated pull request red -- these
+# revisions are the pin that stops both.
+#
+#     uvx pre-commit install     # once, per clone
+#
+# Deliberately not here: mypy and pyright, which need the package installed
+# alongside pandas-stubs; the test suite; check-sdist, which needs a build; and
+# the coverage floor. Those are jobs. A hook has to stay fast enough that
+# people leave it switched on.
+#
+# actionlint is a job rather than a hook for a different reason: it runs
+# shellcheck over every `run:` block when it can find shellcheck and silently
+# skips that half of its work when it cannot, so on a machine without it a
+# contributor would be told their workflow is fine when it is not.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # `.blame/` is whatever data the user was tracing. A test already proves
+      # it is not tracked; this is the other half -- something large that is.
+      - id: check-added-large-files
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      # A stray breakpoint() inside a library that monkeypatches pandas stops
+      # somebody else's pipeline, not ours.
+      - id: debug-statements
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.7
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.30.1
+    hooks:
+      # Exceptions, with their reasons, are in .github/zizmor.yml.
+      - id: zizmor
+        args: [--persona=pedantic]
