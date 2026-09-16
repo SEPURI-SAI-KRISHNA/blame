@@ -33,6 +33,29 @@ updates:
         patterns:
           - "*"
 
+  # The hook revisions in .pre-commit-config.yaml are pins with the same
+  # problem as the action pins above: nothing else moves them. `pre-commit
+  # autoupdate` exists but only runs when somebody remembers to run it, and a
+  # linter stuck two years back is exactly the pin that stops reporting things.
+  - package-ecosystem: pre-commit
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+    commit-message:
+      prefix: chore(deps)
+    cooldown:
+      default-days: 7
+    groups:
+      # ruff moving is a formatting change and zizmor moving is a new audit.
+      # Both want reading, and both want reading together rather than as three
+      # pull requests a week.
+      hooks:
+        patterns:
+          - "*"
+
 # Deliberately no `pip` entry. The runtime dependencies are open lower bounds
 # (pandas>=2.0, pyarrow>=14, numpy>=1.24), which is what a library should
 # publish -- there is no lockfile for Dependabot to bump, and raising a floor is
