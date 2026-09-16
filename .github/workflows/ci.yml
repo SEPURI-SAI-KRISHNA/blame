@@ -229,6 +229,18 @@ jobs:
           enable-cache: true
       - run: uv build --sdist
 
+      - name: The sdist has to contain everything git tracks
+        # The include list in pyproject.toml is maintained by hand, and a
+        # hand-maintained list of files goes stale in one direction only: a new
+        # doc simply does not ship, downstream packagers never receive it, and
+        # every test still passes because tests do not read docs. It had
+        # already happened -- SUPPORT.md was missing the first time this ran.
+        #
+        # No --inject-junk. It checks that stray files are not swept into the
+        # sdist, which cannot happen here: hatchling is given an explicit list
+        # of what to include, not a list of what to leave out.
+        run: uvx check-sdist --installer uv
+
       - name: Unpack the sdist and run its own suite
         env:
           MPLBACKEND: Agg
@@ -337,6 +349,25 @@ jobs:
           print("wheel ok")
           PY
           /tmp/wheelcheck/bin/blame --root /tmp/ci-blame steps
+
+      - name: The whole suite has to pass against the wheel, with src/ deleted
+        # Every other job installs with `uv pip install -e .`, which leaves
+        # src/ on the path and importable whatever the wheel contains. That
+        # hides an entire class of defect -- a module left out of the package
+        # list, a missing data file, a bad __init__ export -- because the real
+        # files are sitting there regardless.
+        #
+        # Deleting src/ is the part that makes this different from the smoke
+        # test above: nothing can resolve to the source tree by accident, not
+        # through a conftest, not through a stray sys.path entry.
+        env:
+          MPLBACKEND: Agg
+        run: |
+          set -- dist/*.whl
+          test "$#" -eq 1 || { echo "expected one wheel, found $#"; exit 1; }
+          VIRTUAL_ENV=/tmp/wheelcheck uv pip install "pandas-blame[dev] @ file://$PWD/$1" matplotlib
+          rm -rf src
+          /tmp/wheelcheck/bin/python -m pytest
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

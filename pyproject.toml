@@ -49,7 +49,14 @@ artifacts = ["src/blame/_ui/*.html"]   # the UI page, served by `blame ui`
 include = [
     "src/blame", "tests", "examples", "bench", "docs", "validation",
     "README.md", "ROADMAP.md", "CHANGELOG.md", "CONTRIBUTING.md",
-    "CODE_OF_CONDUCT.md", "SECURITY.md", "LICENSE",
+    "CODE_OF_CONDUCT.md", "SECURITY.md", "SUPPORT.md", "LICENSE",
+]
+
+[tool.check-sdist]
+# Everything git tracks has to be in the sdist, except the things that are
+# meaningless outside a git checkout. This list is the whole exception.
+git-only = [
+    ".git-blame-ignore-revs",  # read by `git blame`, by nothing else
 ]
 
 [tool.ruff]

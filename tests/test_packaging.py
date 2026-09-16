@@ -81,8 +81,16 @@ def test_no_data_directories_are_tracked():
 
 def test_py_typed_marker_ships():
     """PEP 561: without this file every downstream type checker silently
-    ignores the annotations in this package, however many there are."""
-    assert (ROOT / "src" / "blame" / "py.typed").exists()
+    ignores the annotations in this package, however many there are.
+
+    Checked on the *installed* package rather than on `src/`. A marker sitting
+    in the repository proves nothing about what a user receives -- and the CI
+    job that runs this suite against the built wheel deletes `src/` first, so
+    there would be nothing there to look at.
+    """
+    import blame
+
+    assert (Path(blame.__file__).parent / "py.typed").exists()
 
 
 @repo_only
@@ -355,3 +363,19 @@ def test_the_workflows_themselves_are_audited():
     # answer to this test.
     assert "sha256sum -c" in lint, "the downloaded binary is not checksummed"
     assert (ROOT / ".github" / "zizmor.yml").exists(), "the audit exceptions are gone"
+
+
+@repo_only
+def test_every_document_in_the_root_ships_in_the_sdist():
+    """The sdist include list is maintained by hand and goes stale in one
+    direction only: a new document does not ship, downstream packagers never
+    receive it, and nothing fails -- tests do not read docs.
+
+    `check-sdist` in CI compares the whole sdist against what git tracks. This
+    is the cheap offline half of that, covering the case that actually
+    happened: SUPPORT.md was written, committed, and shipped nowhere.
+    """
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    include = pyproject["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
+    missing = [p.name for p in sorted(ROOT.glob("*.md")) if p.name not in include]
+    assert not missing, f"tracked in git, absent from the sdist: {missing}"
