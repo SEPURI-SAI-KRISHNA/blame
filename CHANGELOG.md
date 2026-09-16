@@ -6,6 +6,21 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Added
+- `.pre-commit-config.yaml`: the formatting, file and workflow-audit checks, run
+  before a commit exists. The `lint` job runs the same list from the same pinned
+  revisions (`pre-commit run --all-files`), so a hook cannot reformat code that
+  CI then rejects. It also pins ruff and zizmor, which CI invoked unpinned --
+  a release of either could turn an unrelated pull request red.
+  ([#56](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/56))
+
+### Changed
+- Dependabot waits seven days before proposing a new release. It otherwise
+  opens a pull request the moment a version appears, including one published
+  from a compromised account and yanked a few hours later -- which is how a
+  pinned supply chain gets unpinned by its own automation. These updates are
+  already grouped into one pull request a week, so the wait costs nothing.
+
 ### Fixed
 - `blame ui` started twice on Windows bound the same port twice. `http.server`
   sets `SO_REUSEADDR`, which on POSIX only permits reusing a port in

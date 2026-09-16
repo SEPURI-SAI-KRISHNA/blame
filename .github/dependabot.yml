@@ -18,6 +18,14 @@ updates:
       # The repository uses Conventional Commits. Dependabot's default subject
       # is "Bump x from a to b", which does not parse.
       prefix: chore(deps)
+    cooldown:
+      # Wait a week before proposing a new release. Dependabot otherwise opens
+      # a pull request the moment a version appears -- including one published
+      # from a compromised account and yanked a few hours later, which is how
+      # a pinned supply chain gets unpinned by its own automation. A week is
+      # long enough for that to surface, and these are grouped into one PR a
+      # week anyway.
+      default-days: 7
     groups:
       # One PR a week rather than one per action. These move together and are
       # reviewed together.

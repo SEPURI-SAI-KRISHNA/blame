@@ -356,7 +356,8 @@ def test_the_workflows_themselves_are_audited():
     """They are the one part of this repository that executes third-party code
     on every push, and they were the one part nothing read."""
     lint = _jobs(ROOT / ".github" / "workflows" / "ci.yml")["lint"]
-    assert "zizmor" in lint, "nothing audits the workflows"
+    config = (ROOT / ".pre-commit-config.yaml").read_text()
+    assert "zizmor" in config, "nothing audits the workflows"
     assert "actionlint" in lint, "nothing checks the shell inside run: blocks"
     # The linter is downloaded from a release. Fetching a binary and running it
     # unverified inside the job that guards the supply chain would be its own
@@ -393,3 +394,27 @@ def test_the_suite_measures_what_it_reaches():
     floor = re.search(r"--fail-under=(\d+)", ci)
     assert floor, "coverage is measured but nothing fails when it drops"
     assert int(floor.group(1)) >= 85, "the floor is too low to notice a module going untested"
+
+
+@repo_only
+def test_the_linters_have_one_source_of_truth():
+    """CI runs the contributor's hooks rather than a second list of its own.
+
+    With two lists they drift, and the drift is silent in both directions: a
+    hook reformats what CI then rejects, or CI runs an unpinned linter whose
+    next release turns an unrelated pull request red.
+    """
+    lint = _jobs(ROOT / ".github" / "workflows" / "ci.yml")["lint"]
+    config = (ROOT / ".pre-commit-config.yaml").read_text()
+
+    assert "pre-commit run --all-files" in lint, "CI does not run the hooks"
+    assert "uvx ruff" not in lint, "ruff is invoked directly as well as through the hooks"
+    for hook in ("ruff-check", "ruff-format", "zizmor"):
+        assert f"id: {hook}" in config, f"{hook} is not among the hooks"
+
+    # Nothing watches these: Dependabot has no pre-commit ecosystem, so the
+    # revisions only move when somebody runs `pre-commit autoupdate`. A branch
+    # or a bare SHA would make that impossible to review.
+    revs = re.findall(r"^\s+rev: (\S+)", config, re.M)
+    assert revs, "no pinned hook revisions"
+    assert all(re.fullmatch(r"v\d+(\.\d+)*", rev) for rev in revs), revs

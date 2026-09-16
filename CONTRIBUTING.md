@@ -7,7 +7,12 @@ git clone https://github.com/SEPURI-SAI-KRISHNA/blame
 cd blame
 uv venv && uv pip install -e ".[dev]"
 uv run pytest
+uvx pre-commit install
 ```
+
+That last line is worth the ten seconds. The hooks are the same list CI runs --
+formatting, a workflow audit, a few file checks -- so they catch at commit time
+the things that otherwise cost you a round trip through a red build.
 
 ## The one rule that matters
 
@@ -50,9 +55,25 @@ for an operation, mark it approximate rather than guessing.
 
 ```bash
 uv run pytest
-uvx ruff check .
-uvx ruff format --check .
+uvx pre-commit run --all-files
 ```
+
+`pre-commit` runs ruff, a zizmor audit of the workflows, and the file checks.
+It is exactly what the `lint` job runs, from the same pinned revisions, so a
+pass here is a pass there.
+
+Not covered by the hooks, and worth running if you touched the tracer or the
+workflows:
+
+```bash
+uv run mypy
+```
+
+`actionlint` is not a hook because it runs shellcheck over every `run:` block
+when it can find shellcheck and silently skips that half of its work when it
+cannot -- on a machine without it you would be told a workflow is fine when it
+is not. The `lint` job downloads a pinned, checksummed binary; the command is
+in `.github/workflows/ci.yml` if you want to run it yourself.
 
 If you changed what is exact and what is not, update `docs/accuracy.md`.
 

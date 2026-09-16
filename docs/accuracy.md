@@ -49,4 +49,3 @@ mapping, so `blame` stores a *reference* to the parent plus the mapping it
 already recorded, and rebuilds the column by indexing when you ask to see it.
 Only two kinds of bytes are ever stored — your input frames, and columns whose
 values are genuinely new (`assign`, aggregations).
-

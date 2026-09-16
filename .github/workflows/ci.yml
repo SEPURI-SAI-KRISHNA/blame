@@ -41,22 +41,18 @@ jobs:
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
-      - run: uvx ruff check --output-format=github .
-      - run: uvx ruff format --check --diff .
-
-      # The workflows are part of the attack surface and were the one part of
-      # this repository nothing looked at: they run with a token, check the
-      # repository out, and execute third-party code on every push. zizmor
-      # reads them the way an attacker would.
+      # Exactly the hooks a contributor runs locally, from the same pinned
+      # list. Two lists drift: one side reformats what the other rejects, and
+      # an unpinned linter release turns an unrelated pull request red. The
+      # revisions in .pre-commit-config.yaml are the pin that stops both.
       #
-      # Exceptions live in .github/zizmor.yml, each with its reason written
-      # next to it. GH_TOKEN enables the audits that need to ask GitHub about
-      # an action -- whether a pinned ref still exists, whether it has a known
-      # advisory -- which are the ones that go stale silently without it.
-      - name: Audit the workflows
+      # GH_TOKEN puts zizmor online, where it can ask GitHub whether a pinned
+      # action still exists and whether it has an advisory. Locally, without a
+      # token, it audits offline and says so.
+      - name: Every check a contributor's hooks run
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uvx zizmor --persona=pedantic --format=github .github/workflows/
+        run: uvx pre-commit run --all-files --show-diff-on-failure
 
       # Shell mistakes and bad expressions inside `run:` blocks, which YAML
       # parsing does not see and zizmor is not looking for.
