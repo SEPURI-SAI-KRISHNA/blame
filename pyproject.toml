@@ -1,6 +1,6 @@
 [project]
 name = "pandas-blame"
-version = "0.1.3"
+version = "0.2.0"
 description = "Cell-level why, time-travel and run-diff for pandas pipelines. No code changes."
 readme = "README.md"
 requires-python = ">=3.10"

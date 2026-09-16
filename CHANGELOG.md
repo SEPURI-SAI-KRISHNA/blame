@@ -6,236 +6,187 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
-### Changed
+## [0.2.0] - 2026-09-16
+
+The release where `.loc` and `.iloc` started being traced, `why()` and
+`forward()` stopped answering about rows that do not exist, and the supply
+chain around all of it grew teeth.
+
+### Security
 - **Breaking:** `pyarrow>=23.0.1` is now the floor, raised from `pyarrow>=14`.
   The old range admitted two versions with published advisories, and `blame` is
-  in the path of both: `_store.py` reads Arrow IPC on every query.
-  [CVE-2023-47248](https://github.com/advisories/GHSA-5wvp-7f3h-6wmm) is an
-  arbitrary-code-execution bug in versions below 14.0.1, and
-  [CVE-2026-25087](https://github.com/advisories/GHSA-rgxp-2hwp-jwgg) a
+  in the path of both -- `_store.py` reads Arrow IPC on every query.
+  [CVE-2023-47248](https://github.com/advisories/GHSA-5wvp-7f3h-6wmm) is
+  arbitrary code execution in versions below 14.0.1;
+  [CVE-2026-25087](https://github.com/advisories/GHSA-rgxp-2hwp-jwgg) is a
   use-after-free reading an IPC file, fixed in 23.0.1. A lower bound cannot
   exclude a middle range, so closing the second one means moving past it.
   `pyarrow` 23.0.1 requires Python 3.10, which is this project's own floor, so
   no Python version is dropped -- but an environment pinned to `pyarrow` 14
-  through 22 will not resolve. ([#60](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/60))
-- The `floor` job installed `pyarrow==14.0.0` on every run, which is to say it
-  installed a version with a critical advisory on every run.
-
-### Added
+  through 22 will not resolve.
+  ([#60](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/60))
+- The `floor` job pinned `pyarrow==14.0.0` exactly, so CI installed a version
+  with a critical advisory on every run.
 - `SECURITY.md` says what a `.blame/` store from someone else is: untrusted
   input handed to a deserializer written in C++. `blame load` takes a run id,
   which makes "send me your `.blame/`" a natural request, and the page
   previously described that directory only as *your* data.
-
-### Changed
-- Dependabot watches the pre-commit hook revisions as well as the action pins,
-  grouped into one pull request a week with the same seven-day cooldown. The
-  hooks were pinned with nothing to move them: `pre-commit autoupdate` only
-  runs when somebody remembers, and a linter stuck two versions back is exactly
-  the pin that quietly stops reporting things.
-  ([#58](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/58))
-
-### Added
-- `.pre-commit-config.yaml`: the formatting, file and workflow-audit checks, run
-  before a commit exists. The `lint` job runs the same list from the same pinned
-  revisions (`pre-commit run --all-files`), so a hook cannot reformat code that
-  CI then rejects. It also pins ruff and zizmor, which CI invoked unpinned --
-  a release of either could turn an unrelated pull request red.
-  ([#56](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/56))
-
-### Changed
-- Dependabot waits seven days before proposing a new release. It otherwise
-  opens a pull request the moment a version appears, including one published
-  from a compromised account and yanked a few hours later -- which is how a
-  pinned supply chain gets unpinned by its own automation. These updates are
-  already grouped into one pull request a week, so the wait costs nothing.
-
-### Fixed
-- `blame ui` started twice on Windows bound the same port twice. `http.server`
-  sets `SO_REUSEADDR`, which on POSIX only permits reusing a port in
-  `TIME_WAIT` but on Windows also permits binding a port that is already
-  listening. The second server printed the same URL as the first and the two
-  then split incoming requests unpredictably, so the page showed frames from
-  whichever run answered. The fallback to the next port never ran, because
-  nothing raised. Found by running the new UI tests on the Windows leg.
-
-### Added
-- Coverage is measured in CI, with a floor that fails the build. Nothing
-  measured it before, which is how `cli.py` sat at 0% -- every subcommand and
-  every error path unexecuted while the suite was green. The report goes to the
-  job summary and the line-by-line HTML is uploaded when the floor is missed.
-  ([#24](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/24))
-- The HTTP surface behind `blame ui` has tests: 17 of them, driving a real
-  server on an ephemeral port. Every endpoint, and every way of getting it
-  wrong -- an unknown frame id, a row that does not exist, a row list that is
-  not numbers, a missing parameter -- each asserting that the answer is JSON
-  and that the server is still serving afterwards. A local UI is long-lived and
-  a handler that raises takes the page down with it; that resilience was a
-  design decision nothing protected. `ui.py` goes from 78% to 87% covered.
-- A `DataFrame` carrying NaN, infinity or NaT is checked end to end through the
-  UI. The payload is written with `allow_nan=False`, so any of the three
-  reaching `json.dumps` would fail the request and show an error in place of
-  the grid.
-
-### Changed
-- The restore test covers every patch instead of two of them. `blame` replaces
-  164 attributes on pandas while a trace is running, and "we left your pandas
-  exactly as we found it" -- the load-bearing promise a monkeypatching library
-  makes -- was verified on `DataFrame.__getitem__` and `pd.merge` alone, about
-  1% of the surface. The list is now read back from the tracer, so an operation
-  traced later is covered without anyone remembering to add it.
-
-### Fixed
-- `SUPPORT.md` was committed but never shipped. The sdist's include list is
-  maintained by hand, and a list like that goes stale in one direction only:
-  the file does not ship, downstream packagers -- Debian, conda-forge,
-  Homebrew, Nix -- never receive it, and nothing fails, because no test reads
-  documentation. ([#26](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/26))
-
-### Added
-- `check-sdist` runs in CI and compares the built sdist against everything git
-  tracks. A file that is committed but not packaged now fails the build. The
-  single exception, `.git-blame-ignore-revs`, is declared in `pyproject.toml`
-  with its reason.
-- The full suite runs against the built wheel with `src/` deleted. Every other
-  job installs with `uv pip install -e .`, which leaves the source tree
-  importable whatever the wheel actually contains -- so a module left out of
-  the package list, a missing data file or a broken `__init__` export would
-  have passed every check. The `package` job previously ran a ten-line smoke
-  script against the wheel and nothing more.
-
-### Changed
-- The `py.typed` test checks the installed package instead of `src/`. A marker
-  sitting in the repository says nothing about what a user receives.
-
-### Added
-- The workflow files are audited on every pull request. They were the one part
-  of this repository nothing read, and they are the part that runs with a
-  token, checks the repository out and executes third-party code on every push.
-  `zizmor` at `persona: pedantic` and `actionlint` both run in the `lint` job;
-  exceptions live in `.github/zizmor.yml` with the reason written next to each
-  one. ([#25](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/25))
-
-### Changed
-- Every action is pinned to a commit rather than a tag, with the version in a
-  trailing comment. A tag can be moved to point at different code; a commit
-  cannot. The one exception is `pypa/gh-action-pypi-publish`, which runs a
-  Docker image published only for release tags -- a SHA there gives `manifest
-  unknown` and no release can be published at all.
-- Every `actions/checkout` sets `persist-credentials: false`. Without it a
-  credential is left in `.git/config` for the rest of the job, readable by
-  everything that runs afterwards -- which in this repository means pandas,
-  matplotlib and their transitive dependencies.
-- `release.yml` runs one release at a time and never cancels one. Cancelling a
-  run that has already uploaded leaves a version on PyPI whose build was killed
-  halfway through, and PyPI will not accept that filename a second time.
-
-### Changed
-- A release is tested before it is published. `release.yml` installs the wheel
-  it has just built and runs the suite against that, so a tagged commit whose
-  tests fail never reaches the publish job. It tests the artifact rather than
-  the checkout -- `import blame` resolves to site-packages, asserted in the job
-  rather than assumed -- which also catches anything the wheel leaves out
-  before a user finds it. Publishing was previously gated only on `twine check`
-  and a human approving a deployment dialog that shows no test result.
-  ([#34](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/34))
-
-### Added
-- `SECURITY.md` says how to verify a release. Every file on PyPI from 0.1.2
-  onwards already carries [PEP 740](https://peps.python.org/pep-0740/)
-  provenance naming this repository and `release.yml`, and the page shows how
-  to read it -- including that PyPI's per-version JSON endpoint reports
-  `"provenance": null` for files that do have it, which is what made it look
-  absent.
-
-### Fixed
-- `forward()` answered about rows that are not in the frame. A four-row source
-  asked about row 99 replied `{'f0': [99]}` -- which reads exactly like a real
-  row that was filtered out, so anyone who mistyped a row number was told their
-  input had been dropped rather than that the row does not exist. Both
-  `forward()` and `why()` now check the row against the frame it indexes and
-  raise an `IndexError` naming the frame and its size.
-  ([#49](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/49))
-- `why()` on a row past the end of the frame raised `index 999 is out of bounds
-  for axis 0 with size 3` -- a numpy message about an internal array, naming
-  neither the frame nor the argument at fault. It now says
-  `no row 999 in groupby.sum [f2]: it has 2 row(s), 0 to 1`.
-
-### Changed
-- A negative row means what it means everywhere else in Python: `row=-1` is the
-  last row. It was previously walked as a literal position, which could not
-  exist.
-
-### Added
-- The command line has tests. All seven subcommands, their flags and their
-  failure paths, driven through `main(argv)` in-process: `cli.py` goes from 0%
-  to 99% covered, and overall coverage from 81% to 89%.
-  ([#23](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/23))
-
-### Changed
-- The CLI reports a caller's mistake as one line on stderr instead of a
-  traceback. A row that does not exist, an unknown `--target` and a step index
-  past the end of the run each printed a raw `IndexError` or `KeyError`; they
-  now print what went wrong and exit 1. `blame at 999` says how many steps the
-  run actually has.
-
-### Fixed
-- The typecheck job reported `Success` while checking a fraction of the code.
-  mypy skips the body of every unannotated function by default and 134 of this
-  package's functions are unannotated, so five real type errors sat behind a
-  green tick -- three of them in the lineage core. `check_untyped_defs` is on
-  and all five are fixed.
-  ([#22](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/22))
-- `query.py` read `ColumnRef.hash` and `ColumnRef.ref` without checking them.
-  Which one is populated is decided by `kind`, but only by convention -- both
-  are optional -- so a store written by anything else would have failed deep
-  inside a query. A column that cannot be rebuilt is now `None` rather than a
-  crash.
-- `/api/frame` and `/api/why` answered 500 from inside the payload builder when
-  `fid` was missing. A missing required parameter is the caller's mistake and
-  now says so with a 400.
-- `Handler.log_message` did not match the signature it overrides.
-
-### Added
-- `pyright` runs in CI alongside `mypy`. Most people consuming a `py.typed`
-  package are on pyright -- it is what Pylance runs in VS Code -- and mypy was
-  clean while pyright found 15 errors, seven of them in `query.py`, which is
-  what `why()` returns.
+- `SECURITY.md` also says how to verify a release. Every file on PyPI from
+  0.1.2 onwards carries [PEP 740](https://peps.python.org/pep-0740/) provenance
+  naming this repository and `release.yml` -- including the detail that PyPI's
+  per-version JSON endpoint reports `"provenance": null` for files that do have
+  it, which is what made it look absent.
 
 ### Fixed
 - `df.loc[...]` and `df.iloc[...]` recorded no step at all, in every form. The
   two commonest ways of subsetting a DataFrame simply vanished from the
   pipeline: `why()` on the result raised "that frame is not in this run", and
-  when it fed a later operation, pandas' internal `take` showed through as an
-  approximate hop belonging to nothing the user wrote. Both are now traced with
-  exact lineage -- boolean masks, positional and label slices, lists, and the
-  `[rows, cols]` form. ([#45](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/45))
+  when the result fed a later operation, pandas' internal `take` showed through
+  as an approximate hop belonging to nothing the user wrote. Both are now
+  traced with exact lineage -- boolean masks, positional and label slices,
+  lists, and the `[rows, cols]` form.
+  ([#45](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/45))
 - `groupby(...).head(n)` and `.tail(n)` were untraced for the same reason. They
   are now answered from the group's positional indices, so the lineage is exact
   even when the index has duplicates -- which is what you get from `concat`,
   from `melt`, or from reading any file keyed on a non-unique column.
+- **Breaking:** `forward()` answered about rows that are not in the frame. A
+  four-row source asked about row 99 replied `{'f0': [99]}` -- which reads
+  exactly like a real row that was filtered out, so anyone who mistyped a row
+  number was told their input had been dropped rather than that the row does
+  not exist. `forward()` and `why()` now check the row against the frame it
+  indexes and raise `IndexError`. Code that passed an out-of-range row and
+  carried on will now see an exception.
+  ([#49](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/49))
+- `why()` past the end of a frame raised `index 999 is out of bounds for axis 0
+  with size 3` -- a numpy message about an internal array, naming neither the
+  frame nor the argument at fault. It now says `no row 999 in groupby.sum [f2]:
+  it has 2 row(s), 0 to 1`.
+- `blame ui` started twice on Windows bound the same port twice. `http.server`
+  sets `SO_REUSEADDR`, which on POSIX only permits reusing a port in
+  `TIME_WAIT`, but on Windows also permits binding a port that is already
+  listening. The second server printed the same URL as the first and the two
+  split incoming requests unpredictably, so the page showed frames from
+  whichever run answered. The fallback to the next port never ran, because
+  nothing raised.
 - `_install` refuses to wrap anything that is not a plain method. `GroupBy.nth`
   is a method in pandas 2 and a property in pandas 3; wrapping the property
   raised `'property' object is not callable` the first time a user touched it,
   breaking their pipeline rather than ours.
+- `SUPPORT.md` was committed but never shipped. The sdist's include list is
+  maintained by hand, and a list like that goes stale in one direction only:
+  the file does not ship, downstream packagers -- Debian, conda-forge,
+  Homebrew, Nix -- never receive it, and nothing fails, because no test reads
+  documentation. ([#26](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/26))
+- `query.py` read `ColumnRef.hash` and `ColumnRef.ref` without checking them.
+  Which one is populated is decided by `kind`, but only by convention -- both
+  are optional -- so a store written by anything else would have failed deep
+  inside a query. A column that cannot be rebuilt is now `None` rather than a
+  crash. ([#22](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/22))
+- `/api/frame` and `/api/why` answered 500 from inside the payload builder when
+  `fid` was missing. A missing required parameter is the caller's mistake and
+  now says so with a 400.
+- `Handler.log_message` did not match the signature it overrides.
+- The typecheck job reported `Success` while checking a fraction of the code.
+  mypy skips the body of every unannotated function by default and 134 of this
+  package's functions are unannotated, so five real type errors sat behind a
+  green tick -- three of them in the lineage core. `check_untyped_defs` is on
+  and all five are fixed.
+
+### Changed
+- A negative row means what it means everywhere else in Python: `row=-1` is the
+  last row. It was previously walked as a literal position, which could not
+  exist.
+- The command line reports a caller's mistake as one line on stderr instead of
+  a traceback. A row that does not exist, an unknown `--target` and a step index
+  past the end of the run each printed a raw `IndexError` or `KeyError`; they
+  now print what went wrong and exit 1. `blame at 999` says how many steps the
+  run actually has.
+- A release is tested before it is published. `release.yml` installs the wheel
+  it has just built and runs the suite against that, so a tagged commit whose
+  tests fail never reaches the publish job. It tests the artifact rather than
+  the checkout, which also catches anything the wheel leaves out before a user
+  does. Publishing was previously gated only on `twine check` and a human
+  approving a deployment dialog that shows no test result.
+  ([#34](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/34))
+- `docs/validation.md` and the README report what the harness measures: ten
+  pandas tutorials, 30 frames compared, 127 traced steps, **0 raised, 0 changed
+  results and 0 approximate steps**. The README's "no approximate steps" claim
+  was untrue of the corpus when this cycle began -- two steps came from
+  `take`, reached through `df.loc[mask, cols]` and `groupby().head(n)` -- and
+  is true now that both are traced.
+- The restore test covers every patch instead of two of them. `blame` replaces
+  164 attributes on pandas while a trace runs, and "we left your pandas exactly
+  as we found it" was verified on `DataFrame.__getitem__` and `pd.merge` alone.
+  The list is now read back from the tracer, so an operation traced later is
+  covered without anyone remembering to add it.
+  ([#24](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/24))
+- The `py.typed` test checks the installed package instead of `src/`. A marker
+  sitting in the repository says nothing about what a user receives.
+- Every action is pinned to a commit rather than a tag, with the version in a
+  trailing comment. A tag can be moved to point at different code; a commit
+  cannot. The one exception is `pypa/gh-action-pypi-publish`, which runs a
+  Docker image published only for release tags -- a SHA there gives `manifest
+  unknown` and no release can be published at all.
+  ([#25](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/25))
+- Every `actions/checkout` sets `persist-credentials: false`. Without it a
+  credential is left in `.git/config` for the rest of the job, readable by
+  everything that runs afterwards -- which here means pandas, matplotlib and
+  their transitive dependencies.
+- `release.yml` runs one release at a time and never cancels one. Cancelling a
+  run that has already uploaded leaves a version on PyPI whose build was killed
+  halfway through, and PyPI will not accept that filename a second time.
+- Dependabot waits seven days before proposing a new release, and watches the
+  pre-commit hook revisions as well as the action pins. Without a cooldown it
+  opens a pull request the moment a version appears, including one published
+  from a compromised account and yanked hours later -- which is how a pinned
+  supply chain gets unpinned by its own automation.
+  ([#58](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/58))
 
 ### Added
+- `.pre-commit-config.yaml`: the formatting, file and workflow-audit checks, run
+  before a commit exists. The `lint` job runs the same list from the same pinned
+  revisions, so a hook cannot reformat code that CI then rejects. It also pins
+  ruff and zizmor, which CI previously invoked unpinned -- a release of either
+  could turn an unrelated pull request red.
+  ([#56](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/56))
+- The workflow files are audited on every pull request. They were the one part
+  of this repository nothing read, and they are the part that runs with a token,
+  checks the repository out and executes third-party code on every push.
+  `zizmor` at `persona: pedantic` and `actionlint` both run in the `lint` job;
+  exceptions live in `.github/zizmor.yml` with a reason beside each one.
 - `validation/run.py`: the harness behind `docs/validation.md`, now in the
   repository and running on every pull request. It fetches the ten pandas
   getting-started tutorials pinned to a pandas release, runs each one twice --
-  plain and inside `blame.trace()` -- and compares every frame the script
-  leaves behind with `pandas.testing.assert_frame_equal`. The page previously
-  described a harness nobody could run, so its numbers could not be checked by
-  anyone. ([#27](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/27))
-
-### Changed
-- `docs/validation.md` and the README report what the harness measures: ten
-  tutorials, 30 frames compared, 125 traced steps, **0 raised and 0 changed
-  results**, and 2 approximate steps. The README previously claimed "no
-  approximate steps", which was not true of the current corpus -- both come
-  from `take`, which is untraced, reached through `df.loc[mask, cols]` and
-  `groupby().head(n)`. That gap is pre-existing on every supported pandas and
-  is tracked separately.
+  plain and inside `blame.trace()` -- and compares every frame the script leaves
+  behind with `pandas.testing.assert_frame_equal`. The page previously described
+  a harness nobody could run, so its numbers could not be checked by anyone.
+  ([#27](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/27))
+- `check-sdist` runs in CI and compares the built sdist against everything git
+  tracks. A file that is committed but not packaged now fails the build.
+- The full suite runs against the built wheel with `src/` deleted. Every other
+  job installs with `uv pip install -e .`, which leaves the source tree
+  importable whatever the wheel contains -- so a module left out of the package
+  list, a missing data file or a broken `__init__` export would have passed
+  every check.
+- Coverage is measured in CI, with a floor that fails the build. Nothing
+  measured it before, which is how `cli.py` sat at 0% -- every subcommand and
+  every error path unexecuted while the suite was green.
+- The HTTP surface behind `blame ui` has tests: 17 of them, driving a real
+  server on an ephemeral port. Every endpoint, and every way of getting one
+  wrong -- an unknown frame id, a row that does not exist, a row list that is
+  not numbers, a missing parameter -- each asserting the answer is JSON and the
+  server is still serving afterwards. A frame carrying NaN, infinity or NaT is
+  checked end to end, since the payload is written with `allow_nan=False` and
+  any of the three reaching `json.dumps` would show an error in place of the
+  grid.
+- The command line has tests. All seven subcommands, their flags and their
+  failure paths, driven through `main(argv)` in-process: `cli.py` goes from 0%
+  to 99% covered. ([#23](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/23))
+- `pyright` runs in CI alongside `mypy`. Most people consuming a `py.typed`
+  package are on pyright -- it is what Pylance runs in VS Code -- and mypy was
+  clean while pyright found 15 errors, seven of them in `query.py`, which is
+  what `why()` returns.
 
 ## [0.1.3] - 2026-09-15
 
@@ -440,7 +391,8 @@ First public release.
 - Content-addressed column store with structural sharing, keeping capture at
   about 2x wall time and 5 ms per step on a million rows.
 
-[Unreleased]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/SEPURI-SAI-KRISHNA/blame/compare/v0.1.0...v0.1.1
