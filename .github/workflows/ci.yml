@@ -74,6 +74,11 @@ jobs:
           curl -fsSL -o actionlint.tgz "$url"
           echo "${ACTIONLINT_SHA256}  actionlint.tgz" | sha256sum -c -
           tar xzf actionlint.tgz actionlint
+          # actionlint runs shellcheck over every `run:` block when it can find
+          # it and silently skips that half of its job when it cannot, which is
+          # exactly how a shellcheck finding first reached CI having passed on
+          # a machine without shellcheck installed. Fail loudly instead.
+          shellcheck --version > /dev/null
           ./actionlint -color
 
   typecheck:
