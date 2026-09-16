@@ -249,3 +249,41 @@ def test_codeql_writes_its_findings_where_they_can_be_read():
     assert "permissions: {}" in text, "the workflow default should grant nothing"
     for name, block in _jobs(path).items():
         assert "security-events: write" in block, f"job {name!r} cannot upload its findings"
+
+
+@repo_only
+def test_the_release_is_tested_before_it_is_uploaded():
+    """Publishing is gated on a human approving a deployment, and that dialog
+    shows a deploy request rather than a test result.
+
+    Without a suite in the build job, approving means trusting from memory that
+    the tagged commit was green -- and a tag is easy to put on the wrong
+    commit. The order matters as much as the presence: a suite that runs after
+    the upload cannot stop the artifact reaching the publish job.
+    """
+    jobs = _jobs(ROOT / ".github" / "workflows" / "release.yml")
+    build = jobs["build"]
+    # The invocation, not the word: `pytest` appears in a comment in that job,
+    # and an earlier version of this test passed with the step itself deleted.
+    assert "-m pytest" in build, "the build job uploads an artifact it never tested"
+    assert "upload-artifact" in build, "the build job no longer hands anything to publish"
+    assert build.index("-m pytest") < build.index("upload-artifact"), (
+        "the artifact is uploaded before the suite runs, so a failure cannot stop it"
+    )
+    # Against the built wheel, not the checkout: the point is to test the file
+    # that is about to be published, installed the way a user installs it.
+    assert "dist/*.whl" in build, "the suite runs against the source tree, not the wheel"
+    assert "needs: build" in jobs["publish"], "publish no longer waits for build"
+
+
+@repo_only
+def test_the_publish_step_still_signs_what_it_uploads():
+    """PEP 740 provenance is what lets someone check that a file on PyPI was
+    built by this repository's release workflow and not uploaded by whoever
+    obtained a token. `gh-action-pypi-publish` emits it by default under
+    trusted publishing, so there are only two ways to lose it: turn it off, or
+    drop the OIDC permission that signs it.
+    """
+    release = (ROOT / ".github" / "workflows" / "release.yml").read_text()
+    assert "attestations: false" not in release, "provenance is switched off"
+    assert "id-token: write" in release, "nothing can be signed without the OIDC identity"
