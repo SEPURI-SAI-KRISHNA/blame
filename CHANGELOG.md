@@ -7,6 +7,41 @@ Notable changes to `pandas-blame`. Format follows
 ## [Unreleased]
 
 ### Fixed
+- `blame ui` started twice on Windows bound the same port twice. `http.server`
+  sets `SO_REUSEADDR`, which on POSIX only permits reusing a port in
+  `TIME_WAIT` but on Windows also permits binding a port that is already
+  listening. The second server printed the same URL as the first and the two
+  then split incoming requests unpredictably, so the page showed frames from
+  whichever run answered. The fallback to the next port never ran, because
+  nothing raised. Found by running the new UI tests on the Windows leg.
+
+### Added
+- Coverage is measured in CI, with a floor that fails the build. Nothing
+  measured it before, which is how `cli.py` sat at 0% -- every subcommand and
+  every error path unexecuted while the suite was green. The report goes to the
+  job summary and the line-by-line HTML is uploaded when the floor is missed.
+  ([#24](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/24))
+- The HTTP surface behind `blame ui` has tests: 17 of them, driving a real
+  server on an ephemeral port. Every endpoint, and every way of getting it
+  wrong -- an unknown frame id, a row that does not exist, a row list that is
+  not numbers, a missing parameter -- each asserting that the answer is JSON
+  and that the server is still serving afterwards. A local UI is long-lived and
+  a handler that raises takes the page down with it; that resilience was a
+  design decision nothing protected. `ui.py` goes from 78% to 87% covered.
+- A `DataFrame` carrying NaN, infinity or NaT is checked end to end through the
+  UI. The payload is written with `allow_nan=False`, so any of the three
+  reaching `json.dumps` would fail the request and show an error in place of
+  the grid.
+
+### Changed
+- The restore test covers every patch instead of two of them. `blame` replaces
+  164 attributes on pandas while a trace is running, and "we left your pandas
+  exactly as we found it" -- the load-bearing promise a monkeypatching library
+  makes -- was verified on `DataFrame.__getitem__` and `pd.merge` alone, about
+  1% of the surface. The list is now read back from the tracer, so an operation
+  traced later is covered without anyone remembering to add it.
+
+### Fixed
 - `SUPPORT.md` was committed but never shipped. The sdist's include list is
   maintained by hand, and a list like that goes stale in one direction only:
   the file does not ship, downstream packagers -- Debian, conda-forge,

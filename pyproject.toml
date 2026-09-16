@@ -35,7 +35,7 @@ Changelog = "https://github.com/SEPURI-SAI-KRISHNA/blame/blob/main/CHANGELOG.md"
 blame = "blame.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "tomli>=2; python_version<'3.11'"]
+dev = ["pytest>=8", "pytest-cov>=5", "tomli>=2; python_version<'3.11'"]
 
 [build-system]
 requires = ["hatchling"]

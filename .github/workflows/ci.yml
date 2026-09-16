@@ -151,7 +151,10 @@ jobs:
           - {python: "3.10", pandas: "2.2.3", extra: ""}
           - {python: "3.12", pandas: "2.2.3", extra: ""}
           - {python: "3.11", pandas: "3.0.5", extra: ""}
-          - {python: "3.12", pandas: "3.0.5", extra: ""}
+          # Coverage is measured on one pinned leg. Pinned rather than on
+          # "latest", because an unpinned pandas can move which branches run
+          # and turn the floor below into news about pandas.
+          - {python: "3.12", pandas: "3.0.5", extra: "", coverage: true}
           - {python: "3.13", pandas: "3.0.5", extra: ""}
           - {python: "3.14", pandas: "3.0.5", extra: ""}
           # Unpinned: catches a new pandas release before users do.
@@ -202,11 +205,48 @@ jobs:
           "$PY" -c "import sys, pandas, numpy, pyarrow; print(sys.version); print('pandas', pandas.__version__, '| numpy', numpy.__version__, '| pyarrow', pyarrow.__version__)"
 
       - name: Test
+        if: ${{ !matrix.coverage }}
         shell: bash
         env:
           MPLBACKEND: Agg
         run: |
           "$PY" -m pytest
+
+      - name: Test, and measure what the suite reaches
+        # Nothing measured this, which is how cli.py sat at 0% -- every
+        # subcommand, every argument, every error path, unexecuted by any test
+        # while the suite was green.
+        #
+        # The floor is a ratchet: raise it when the number rises, never lower
+        # it without saying why in the pull request. It sits one point below
+        # the current figure so that a pandas patch release moving a branch
+        # somewhere is not reported as a coverage regression; a real one, like
+        # a module going untested, moves it by several points.
+        if: ${{ matrix.coverage }}
+        shell: bash
+        env:
+          MPLBACKEND: Agg
+        run: |
+          "$PY" -m pytest --cov=blame --cov-report=
+          {
+            echo "### Coverage"
+            echo
+            echo '```'
+            "$PY" -m coverage report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          "$PY" -m coverage html
+          "$PY" -m coverage report --fail-under=89
+
+      - name: The line-by-line report, when the floor is not met
+        # Which lines are uncovered is the only useful thing to know at that
+        # point, and it is not in the log.
+        if: ${{ failure() && matrix.coverage }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-html
+          path: htmlcov/
+          retention-days: 7
 
   sdist:
     # Downstream packagers -- Debian, conda-forge, Homebrew, Nix -- build from
