@@ -233,13 +233,15 @@ def test_only_pull_request_builds_are_cancelled():
 
 
 @repo_only
-def test_dependabot_watches_the_action_pins():
-    """Every workflow pins its actions to an exact release tag, which is what
-    makes the supply chain reviewable. Pins rot: without something watching
-    them, "pinned" quietly becomes "stuck on a version with a known problem".
+def test_dependabot_watches_every_pin():
+    """Actions are pinned to commits and pre-commit hooks to tags, which is
+    what makes the supply chain reviewable. Pins rot: without something
+    watching them, "pinned" quietly becomes "stuck on a version with a known
+    problem" -- and for a linter, stuck means it stops reporting things.
     """
     config = (ROOT / ".github" / "dependabot.yml").read_text()
     assert "github-actions" in config, "nothing watches the action pins"
+    assert "pre-commit" in config, "nothing watches the hook revisions"
     # Dependabot's default subject line is "Bump x from a to b", which does not
     # parse as a conventional commit -- and the PR title check would reject it.
     assert "chore(deps)" in config, "dependabot's PR titles would not follow the convention"
@@ -412,9 +414,8 @@ def test_the_linters_have_one_source_of_truth():
     for hook in ("ruff-check", "ruff-format", "zizmor"):
         assert f"id: {hook}" in config, f"{hook} is not among the hooks"
 
-    # Nothing watches these: Dependabot has no pre-commit ecosystem, so the
-    # revisions only move when somebody runs `pre-commit autoupdate`. A branch
-    # or a bare SHA would make that impossible to review.
+    # Dependabot watches these, grouped into one pull request a week. A branch
+    # or a bare SHA in place of a tag would make that update unreviewable.
     revs = re.findall(r"^\s+rev: (\S+)", config, re.M)
     assert revs, "no pinned hook revisions"
     assert all(re.fullmatch(r"v\d+(\.\d+)*", rev) for rev in revs), revs

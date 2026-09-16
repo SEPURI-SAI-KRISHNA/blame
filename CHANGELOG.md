@@ -6,6 +6,14 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Changed
+- Dependabot watches the pre-commit hook revisions as well as the action pins,
+  grouped into one pull request a week with the same seven-day cooldown. The
+  hooks were pinned with nothing to move them: `pre-commit autoupdate` only
+  runs when somebody remembers, and a linter stuck two versions back is exactly
+  the pin that quietly stops reporting things.
+  ([#58](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/58))
+
 ### Added
 - `.pre-commit-config.yaml`: the formatting, file and workflow-audit checks, run
   before a commit exists. The `lint` job runs the same list from the same pinned
