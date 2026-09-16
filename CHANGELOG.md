@@ -6,6 +6,24 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- `forward()` answered about rows that are not in the frame. A four-row source
+  asked about row 99 replied `{'f0': [99]}` -- which reads exactly like a real
+  row that was filtered out, so anyone who mistyped a row number was told their
+  input had been dropped rather than that the row does not exist. Both
+  `forward()` and `why()` now check the row against the frame it indexes and
+  raise an `IndexError` naming the frame and its size.
+  ([#49](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/49))
+- `why()` on a row past the end of the frame raised `index 999 is out of bounds
+  for axis 0 with size 3` -- a numpy message about an internal array, naming
+  neither the frame nor the argument at fault. It now says
+  `no row 999 in groupby.sum [f2]: it has 2 row(s), 0 to 1`.
+
+### Changed
+- A negative row means what it means everywhere else in Python: `row=-1` is the
+  last row. It was previously walked as a literal position, which could not
+  exist.
+
 ### Added
 - The command line has tests. All seven subcommands, their flags and their
   failure paths, driven through `main(argv)` in-process: `cli.py` goes from 0%

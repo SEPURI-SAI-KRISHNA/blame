@@ -1404,3 +1404,57 @@ def test_the_ui_rejects_a_request_with_no_frame_id():
             assert json.loads(body)["error"] == "fid is required"
     finally:
         server.shutdown()
+
+
+def _two_step_run(tmp_path):
+    df = pd.DataFrame(
+        {"cust": ["a", "b", "a", "b"], "qty": [1, 5, 3, 9], "amt": [10.0, 20, 30, 40]}
+    )
+    with blame.trace(root=tmp_path / "bl") as h:
+        kept = df[df.qty > 2]
+        kept.groupby("cust", as_index=False)["amt"].sum()
+    return h.run
+
+
+def test_forward_refuses_a_row_that_is_not_in_the_frame(tmp_path):
+    """It used to answer about it.
+
+    A four-row source asked about row 99 replied `{'f0': [99]}` -- which reads
+    exactly like a real row that got filtered out, so somebody who mistyped a
+    row number was told their input had been dropped. A confidently wrong
+    answer is the failure this tool exists to prevent.
+    """
+    run = _two_step_run(tmp_path)
+    assert run.frame("f0").shape[0] == 4
+
+    with pytest.raises(IndexError, match=r"no row 99 in .*\[f0\]: it has 4 row\(s\), 0 to 3"):
+        run.forward(row=99)
+    with pytest.raises(IndexError, match="no row -99"):
+        run.forward(row=-99)
+    with pytest.raises(IndexError, match="no row 99"):
+        run.forward(row=[0, 99])
+
+
+def test_why_names_the_frame_and_its_size_for_a_bad_row(tmp_path):
+    """The old failure was `index 999 is out of bounds for axis 0 with size 3`
+    -- a numpy message about an internal array, naming neither the frame nor
+    the argument that was wrong."""
+    run = _two_step_run(tmp_path)
+    with pytest.raises(IndexError, match=r"no row 999 in .*\[f2\]: it has 2 row\(s\)"):
+        run.why(row=999)
+    with pytest.raises(IndexError, match="no row 5"):
+        run.why(row=[0, 5])
+
+
+def test_a_negative_row_counts_from_the_end(tmp_path):
+    """Python's convention, rather than a literal position that cannot exist.
+    Before this, -1 was walked as though it were row minus one."""
+    run = _two_step_run(tmp_path)
+    last = run.frame("f0").shape[0] - 1
+    assert {k: v.tolist() for k, v in run.forward(row=-1).items()} == {
+        k: v.tolist() for k, v in run.forward(row=last).items()
+    }
+    out_rows = run.frame(run.result_fid).shape[0]
+    assert {k: v.tolist() for k, v in run.why(row=-1).sources.items()} == {
+        k: v.tolist() for k, v in run.why(row=out_rows - 1).sources.items()
+    }

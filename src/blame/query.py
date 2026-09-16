@@ -258,12 +258,38 @@ class Run:
 
     # -- the questions ---------------------------------------------------
 
+    def _rows_of(self, fid: str, row: int | list[int]) -> np.ndarray:
+        """Normalise the caller's row argument against the frame it indexes.
+
+        Nothing checked this before. `forward()` walked a row that was not in
+        the frame and reported it as one, which reads exactly like a real row
+        that got filtered out -- so someone who mistyped a row number was told
+        their input had been dropped. An answer that is confidently wrong is
+        the failure this tool exists to prevent.
+
+        Negative indices count from the end, as they do everywhere else in
+        Python: `row=-1` is the last row.
+        """
+        rows = np.atleast_1d(np.asarray(row, dtype=np.int64))
+        nrows = self.nodes[fid].data.nrows
+        resolved = np.where(rows < 0, rows + nrows, rows)
+        outside = rows[(resolved < 0) | (resolved >= nrows)]
+        if len(outside):
+            label = self.nodes[fid].label
+            listed = ", ".join(str(int(r)) for r in outside[:5])
+            more = f" (+{len(outside) - 5} more)" if len(outside) > 5 else ""
+            limit = f"0 to {nrows - 1}" if nrows else "it is empty"
+            raise IndexError(
+                f"no row {listed}{more} in {label} [{fid}]: it has {nrows} row(s), {limit}"
+            )
+        return resolved
+
     def why(
         self, row: int | list[int], col: str | None = None, target=None, stop_at: str | None = None
     ) -> Explanation:
         """Which source rows produced this output cell (or rows)."""
         fid = self._resolve(target)
-        rows = np.atleast_1d(np.asarray(row, dtype=np.int64))
+        rows = self._rows_of(fid, row)
         frontier: dict[str, np.ndarray] = {fid: rows}
         hops: list[Hop] = []
         approximate = False
@@ -362,7 +388,7 @@ class Run:
         fid = self._resolve(
             target if target is not None else (self.sources[0] if self.sources else None)
         )
-        reached: dict[str, np.ndarray] = {fid: np.atleast_1d(np.asarray(row, dtype=np.int64))}
+        reached: dict[str, np.ndarray] = {fid: self._rows_of(fid, row)}
         for step in self.steps:
             hits: list[np.ndarray] = []
             for slot, in_fid in enumerate(step.inputs):
