@@ -379,3 +379,17 @@ def test_every_document_in_the_root_ships_in_the_sdist():
     include = pyproject["tool"]["hatch"]["build"]["targets"]["sdist"]["include"]
     missing = [p.name for p in sorted(ROOT.glob("*.md")) if p.name not in include]
     assert not missing, f"tracked in git, absent from the sdist: {missing}"
+
+
+@repo_only
+def test_the_suite_measures_what_it_reaches():
+    """Coverage went unmeasured until `cli.py` was found at 0% -- every
+    subcommand and every error path unexecuted, with the suite green.
+
+    A floor that does not fail the build is a number in a log nobody reads.
+    """
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "--cov=blame" in ci, "nothing measures coverage"
+    floor = re.search(r"--fail-under=(\d+)", ci)
+    assert floor, "coverage is measured but nothing fails when it drops"
+    assert int(floor.group(1)) >= 85, "the floor is too low to notice a module going untested"

@@ -169,15 +169,45 @@ def test_exact_path_is_not_flagged():
 
 
 def test_pandas_is_restored_and_results_unchanged():
+    """Every patch the tracer installs, not a sample of them.
+
+    "We left your pandas exactly as we found it" is the load-bearing promise a
+    monkeypatching library makes, and it was checked on two of the 150-odd
+    attributes replaced -- about 1% of the surface. The list is read back from
+    the tracer rather than written out here, so an operation traced later is
+    covered without anyone remembering to come and add it.
+    """
+    from blame import _tracer
+
     df = _orders(10)
     before = df[df.qty > 0].copy()
-    getitem_before = pd.DataFrame.__getitem__
-    merge_before = pd.merge
     with blame.trace():
         after = df[df.qty > 0]
+        # Taken inside the trace: uninstall() empties this on the way out.
+        patched = list(_tracer._PATCHES)
     pd.testing.assert_frame_equal(before, after)
-    assert pd.DataFrame.__getitem__ is getitem_before, "pandas not restored after trace"
-    assert pd.merge is merge_before
+
+    # Guards against the whole test passing vacuously: an install() that
+    # silently patched nothing would otherwise restore nothing, perfectly.
+    assert len(patched) > 100, f"the tracer installed only {len(patched)} patches"
+    assert any(o is pd.DataFrame and n == "__getitem__" for o, n, _ in patched)
+    assert any(o is pd and n == "merge" for o, n, _ in patched)
+
+    still_patched = [
+        f"{getattr(owner, '__name__', owner)}.{name}"
+        for owner, name, orig in patched
+        if getattr(owner, name, None) is not orig
+    ]
+    assert not still_patched, f"pandas not restored: {still_patched}"
+
+    # Identity is the strict check above; this one says what went wrong when it
+    # fails, since every wrapper carries the original it replaced.
+    wrapped = [
+        f"{getattr(owner, '__name__', owner)}.{name}"
+        for owner, name, _ in patched
+        if hasattr(getattr(owner, name, None), "__blame_original__")
+    ]
+    assert not wrapped, f"still wrapped by blame: {wrapped}"
 
 
 def test_run_survives_a_round_trip_to_disk():
