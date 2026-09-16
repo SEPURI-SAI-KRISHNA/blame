@@ -287,3 +287,71 @@ def test_the_publish_step_still_signs_what_it_uploads():
     release = (ROOT / ".github" / "workflows" / "release.yml").read_text()
     assert "attestations: false" not in release, "provenance is switched off"
     assert "id-token: write" in release, "nothing can be signed without the OIDC identity"
+
+
+USES = re.compile(r"^\s*-?\s*uses:\s*(\S+)(?:\s+#\s*(\S+))?", re.M)
+
+# Pinned to a release tag on purpose, and the only action that is. It runs a
+# Docker image from ghcr.io tagged with whatever ref appears here, and only
+# release tags are published there -- a commit SHA gives "manifest unknown".
+# The reasoning is in .github/zizmor.yml and in release.yml itself.
+_TAG_PINNED = {"pypa/gh-action-pypi-publish"}
+
+
+@repo_only
+@pytest.mark.parametrize("workflow", WORKFLOWS)
+def test_every_action_is_pinned_to_a_commit(workflow):
+    """A tag can be moved to point at different code; a commit cannot.
+
+    Everything here runs with a token on every push, so a tag pin means
+    trusting whoever can move that tag, forever. The version goes in a trailing
+    comment: a bare SHA is unreviewable, and Dependabot writes the comment back
+    when it bumps the pin.
+    """
+    text = (ROOT / ".github" / "workflows" / workflow).read_text()
+    refs = USES.findall(text)
+    assert refs, f"{workflow} runs no actions at all -- has the format changed?"
+    for ref, comment in refs:
+        repo, _, pin = ref.partition("@")
+        if repo in _TAG_PINNED:
+            continue
+        assert re.fullmatch(r"[0-9a-f]{40}", pin), f"{ref} is not pinned to a commit"
+        assert re.fullmatch(r"v\d+(\.\d+)*", comment or ""), (
+            f"{ref} has no version comment, so nobody can tell what it is pinned to"
+        )
+
+
+@repo_only
+@pytest.mark.parametrize("workflow", WORKFLOWS)
+def test_every_checkout_leaves_no_credential_behind(workflow):
+    """`actions/checkout` writes a credential into .git/config and leaves it
+    there for the rest of the job unless told not to.
+
+    Everything that job runs afterwards can read it -- every test, and every
+    dependency of every test. This repository installs pandas, matplotlib and
+    their transitive dependencies before running anything.
+    """
+    lines = (ROOT / ".github" / "workflows" / workflow).read_text().splitlines()
+    checkouts = 0
+    for i, line in enumerate(lines):
+        if "uses:" in line and "actions/checkout@" in line:
+            checkouts += 1
+            block = "\n".join(lines[i : i + 6])
+            assert "persist-credentials: false" in block, (
+                f"{workflow}:{i + 1} leaves a credential in .git/config"
+            )
+    assert checkouts, f"{workflow} no longer checks the repository out"
+
+
+@repo_only
+def test_the_workflows_themselves_are_audited():
+    """They are the one part of this repository that executes third-party code
+    on every push, and they were the one part nothing read."""
+    lint = _jobs(ROOT / ".github" / "workflows" / "ci.yml")["lint"]
+    assert "zizmor" in lint, "nothing audits the workflows"
+    assert "actionlint" in lint, "nothing checks the shell inside run: blocks"
+    # The linter is downloaded from a release. Fetching a binary and running it
+    # unverified inside the job that guards the supply chain would be its own
+    # answer to this test.
+    assert "sha256sum -c" in lint, "the downloaded binary is not checksummed"
+    assert (ROOT / ".github" / "zizmor.yml").exists(), "the audit exceptions are gone"

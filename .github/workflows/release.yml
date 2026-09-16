@@ -4,6 +4,14 @@ on:
   push:
     tags: ["v*"]
 
+# One release at a time, and never cancel one. Two pushes of the same tag would
+# otherwise race to publish, and cancelling a run that has already uploaded
+# leaves a version on PyPI whose build was killed halfway through -- neither
+# published nor retryable, since PyPI will not accept that filename twice.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -12,14 +20,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       - run: uv build
       - run: uvx twine check --strict dist/*
       - name: The tag must match the version being published
         run: |
+          # The glob straight into the positional parameters rather than
+          # through `ls`: it also asserts there is exactly one sdist, which
+          # `ls dist/*.tar.gz` would have quietly concatenated.
+          set -- dist/*.tar.gz
+          test "$#" -eq 1 || { echo "expected one sdist, found $#"; exit 1; }
+          PKG="${1#dist/pandas_blame-}"
+          PKG="${PKG%.tar.gz}"
           TAG="${GITHUB_REF_NAME#v}"
-          PKG=$(ls dist/*.tar.gz | sed -E 's/.*pandas_blame-(.+)\.tar\.gz/\1/')
           test "$TAG" = "$PKG" || { echo "tag $TAG != package $PKG"; exit 1; }
       - name: The tagged commit has to pass its own suite, from the wheel
         # Not a second copy of CI. CI tests the source tree on every push; this
@@ -38,7 +54,9 @@ jobs:
           # PEP 508 direct reference so the [dev] extra comes from the wheel's
           # own metadata; listing pytest here instead would drift from
           # pyproject the first time that extra changes.
-          WHEEL=$(ls dist/*.whl)
+          set -- dist/*.whl
+          test "$#" -eq 1 || { echo "expected one wheel, found $#"; exit 1; }
+          WHEEL="$1"
           VIRTUAL_ENV=$PWD/.venv uv pip install "pandas-blame[dev] @ file://$PWD/$WHEEL" matplotlib
           # The package lives under src/, so a checkout puts no importable
           # `blame` on the path and this resolves to site-packages. Asserted
@@ -47,7 +65,7 @@ jobs:
           ./.venv/bin/python -c "import blame; print(blame.__file__); assert 'site-packages' in blame.__file__, 'the suite would run against the source tree, not the wheel'"
           ./.venv/bin/python -m pytest
 
-      - uses: actions/upload-artifact@v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
@@ -60,7 +78,7 @@ jobs:
     permissions:
       id-token: write        # trusted publishing: no API token stored anywhere
     steps:
-      - uses: actions/download-artifact@v8.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist/

@@ -1,0 +1,31 @@
+# Configuration for zizmor, which audits the workflow files themselves.
+#
+# Every exception here is an exception with a reason. A suppression without one
+# is indistinguishable from a finding nobody got round to.
+
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # A tag can be moved to point at different code; a commit cannot. Every
+        # action is pinned to a SHA with the version in a trailing comment, so
+        # the version stays readable and Dependabot can still bump it.
+        "*": hash-pin
+
+        # The one exception, and it is forced. This action does not run
+        # JavaScript from the repository -- it runs a Docker image pulled from
+        # ghcr.io/pypa/gh-action-pypi-publish tagged with whatever ref appears
+        # here, and only release tags are published there. Pinning the SHA
+        # gives "manifest unknown" and no release can be published at all.
+        # Tested: v1.14.2 -> 200, release/v1 -> 200, the SHA -> 404.
+        pypa/gh-action-pypi-publish: ref-pin
+
+  anonymous-definition:
+    ignore:
+      # The job key already names the job. Adding `name:` to these would be
+      # duplication at best and a trap at worst: the rendered job name is the
+      # required status check context in the branch ruleset, so a `name:` that
+      # does not stay byte-identical to the key blocks every merge until
+      # somebody notices why.
+      - ci.yml
+      - release.yml
