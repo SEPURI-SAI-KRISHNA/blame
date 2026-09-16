@@ -57,6 +57,7 @@ def ui(tmp_path, monkeypatch):
     with blame.trace("ui") as handle:
         kept = df[df.a > 1]
         out = kept.groupby("a", as_index=False)["b"].sum()
+    assert len(out) == 3, "the fixture's own pipeline changed"
 
     with _serving(handle.run) as base:
         yield base, handle.run
@@ -190,6 +191,7 @@ def test_every_kind_of_cell_survives_the_trip_to_json(tmp_path, monkeypatch):
     )
     with blame.trace() as handle:
         out = df[df.i > 0]
+    assert len(out) == 2
 
     with _serving(handle.run) as base:
         status, payload = _json(base, f"/api/frame?fid={handle.run.result_fid}")
@@ -201,7 +203,14 @@ def test_every_kind_of_cell_survives_the_trip_to_json(tmp_path, monkeypatch):
 
 
 def test_a_busy_port_falls_through_to_the_next(ui):
-    """`blame ui` twice in two terminals should open two pages, not fail."""
+    """`blame ui` twice in two terminals should open two pages, not fail.
+
+    This failed on Windows and nowhere else: SO_REUSEADDR, which http.server
+    sets by default, lets a second socket bind a port that is already
+    listening there. The second server bound the same port, printed the same
+    URL, and split the requests with the first -- the fallback never ran,
+    because nothing raised.
+    """
     base, run = ui
     taken = int(base.rsplit(":", 1)[1])
     server = make_server(run, port=taken)

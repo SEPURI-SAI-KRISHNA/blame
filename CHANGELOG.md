@@ -6,6 +6,15 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- `blame ui` started twice on Windows bound the same port twice. `http.server`
+  sets `SO_REUSEADDR`, which on POSIX only permits reusing a port in
+  `TIME_WAIT` but on Windows also permits binding a port that is already
+  listening. The second server printed the same URL as the first and the two
+  then split incoming requests unpredictably, so the page showed frames from
+  whichever run answered. The fallback to the next port never ran, because
+  nothing raised. Found by running the new UI tests on the Windows leg.
+
 ### Added
 - Coverage is measured in CI, with a floor that fails the build. Nothing
   measured it before, which is how `cli.py` sat at 0% -- every subcommand and

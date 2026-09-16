@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -232,6 +233,20 @@ def _handler(run, lock):
     return Handler
 
 
+class _Server(ThreadingHTTPServer):
+    # SO_REUSEADDR means two different things. On POSIX it lets a port in
+    # TIME_WAIT be reused, which is why http.server turns it on; binding a port
+    # that is actually listening still fails, so the fallback below works.
+    #
+    # On Windows it also lets a second process bind a port that is already
+    # listening. Both servers then have the same address and arriving
+    # connections go to one of them unpredictably -- so `blame ui` in a second
+    # terminal appeared to start, printed the same URL, and served roughly half
+    # the requests for somebody else's run. The fallback never ran, because
+    # nothing failed.
+    allow_reuse_address = os.name != "nt"
+
+
 def make_server(run, port: int = 7654, host: str = "127.0.0.1") -> ThreadingHTTPServer:
     """A bound, not-yet-serving HTTP server for `run`. Port 0 picks a free one;
     any other port is tried, then the 19 after it."""
@@ -243,7 +258,7 @@ def make_server(run, port: int = 7654, host: str = "127.0.0.1") -> ThreadingHTTP
     candidates = [0] if port == 0 else range(port, port + 20)
     for candidate in candidates:
         try:
-            return ThreadingHTTPServer((host, candidate), handler)
+            return _Server((host, candidate), handler)
         except OSError:
             continue
     raise OSError(f"no free port in {port}..{port + 19}")
