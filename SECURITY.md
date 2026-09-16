@@ -13,6 +13,13 @@ Two things worth knowing:
   the input files. `sample_rows=N` caps how much of each frame is stored.
 - **`blame ui` has no authentication.** It binds to localhost and is meant for
   a single developer on one machine. Do not expose it on a shared host.
+- **A `.blame/` store from someone else is untrusted input.** `blame load`
+  takes a run id, so "send me your `.blame/`" is a natural thing to ask of a
+  debugging tool -- and opening one hands Arrow IPC files to a deserializer
+  written in C++. The `pyarrow` floor is set past every version with a
+  published advisory affecting that parser, but a floor is a statement about
+  versions that exist today. Treat a store you did not record the way you would
+  treat any other file from a stranger.
 
 ## Verifying a release
 
