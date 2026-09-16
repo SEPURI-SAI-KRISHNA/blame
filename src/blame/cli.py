@@ -12,6 +12,15 @@ from ._store import Store
 from .query import Run
 
 
+class UsageError(Exception):
+    """Something the caller got wrong: a bad row, an unknown frame, no runs.
+
+    Separate from a crash. These reach the user as one line on stderr and exit
+    1, because a traceback for a mistyped row number tells them nothing they
+    can act on.
+    """
+
+
 def _run(args) -> Run:
     return Run.load(args.run, args.root)
 
@@ -72,6 +81,12 @@ def _cmd_forward(args) -> int:
 
 def _cmd_at(args) -> int:
     run = _run(args)
+    if not 0 <= args.step < len(run.steps):
+        last = len(run.steps) - 1
+        raise UsageError(
+            f"no step {args.step}: this run has {len(run.steps)} steps"
+            + (f" (0 to {last})" if run.steps else "")
+        )
     frame = run.at(args.step)
     step = run.steps[args.step]
     print(f"step {step.idx}: {step.op}({step.detail})  {step.loc}")
@@ -169,8 +184,18 @@ def main(argv: list[str] | None = None) -> int:
         args.target = int(args.target)
     try:
         return args.fn(args)
+    except UsageError as exc:
+        print(f"blame: {exc}", file=sys.stderr)
+        return 1
     except FileNotFoundError as exc:
         print(f"blame: {exc}", file=sys.stderr)
+        return 1
+    except (KeyError, IndexError) as exc:
+        # These come out of the query layer for a row or frame that does not
+        # exist. The message is usually good -- KeyError's repr adds quotes
+        # around it, which str() on the argument does not.
+        message = exc.args[0] if exc.args and isinstance(exc.args[0], str) else str(exc)
+        print(f"blame: {message}", file=sys.stderr)
         return 1
 
 
