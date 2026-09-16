@@ -6,6 +6,24 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Changed
+- A release is tested before it is published. `release.yml` installs the wheel
+  it has just built and runs the suite against that, so a tagged commit whose
+  tests fail never reaches the publish job. It tests the artifact rather than
+  the checkout -- `import blame` resolves to site-packages, asserted in the job
+  rather than assumed -- which also catches anything the wheel leaves out
+  before a user finds it. Publishing was previously gated only on `twine check`
+  and a human approving a deployment dialog that shows no test result.
+  ([#34](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/34))
+
+### Added
+- `SECURITY.md` says how to verify a release. Every file on PyPI from 0.1.2
+  onwards already carries [PEP 740](https://peps.python.org/pep-0740/)
+  provenance naming this repository and `release.yml`, and the page shows how
+  to read it -- including that PyPI's per-version JSON endpoint reports
+  `"provenance": null` for files that do have it, which is what made it look
+  absent.
+
 ### Fixed
 - `forward()` answered about rows that are not in the frame. A four-row source
   asked about row 99 replied `{'f0': [99]}` -- which reads exactly like a real

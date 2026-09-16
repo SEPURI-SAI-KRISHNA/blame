@@ -21,6 +21,32 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(ls dist/*.tar.gz | sed -E 's/.*pandas_blame-(.+)\.tar\.gz/\1/')
           test "$TAG" = "$PKG" || { echo "tag $TAG != package $PKG"; exit 1; }
+      - name: The tagged commit has to pass its own suite, from the wheel
+        # Not a second copy of CI. CI tests the source tree on every push; this
+        # tests the one artifact about to be published, installed the way a
+        # user installs it. Anything the wheel leaves out -- a data file, an
+        # entry point, a module missing from the package list -- fails here
+        # instead of in somebody's `pip install`.
+        #
+        # One interpreter rather than the matrix: whether this code works on
+        # 3.10 through 3.14 is a question CI already answered about these
+        # contents. What is still unproven at this point is the artifact.
+        env:
+          MPLBACKEND: Agg
+        run: |
+          uv venv --python 3.12
+          # PEP 508 direct reference so the [dev] extra comes from the wheel's
+          # own metadata; listing pytest here instead would drift from
+          # pyproject the first time that extra changes.
+          WHEEL=$(ls dist/*.whl)
+          VIRTUAL_ENV=$PWD/.venv uv pip install "pandas-blame[dev] @ file://$PWD/$WHEEL" matplotlib
+          # The package lives under src/, so a checkout puts no importable
+          # `blame` on the path and this resolves to site-packages. Asserted
+          # rather than assumed: if it ever stopped being true the suite would
+          # quietly go back to testing the source tree and still pass.
+          ./.venv/bin/python -c "import blame; print(blame.__file__); assert 'site-packages' in blame.__file__, 'the suite would run against the source tree, not the wheel'"
+          ./.venv/bin/python -m pytest
+
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: dist
