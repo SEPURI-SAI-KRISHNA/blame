@@ -6,6 +6,29 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Fixed
+- `SUPPORT.md` was committed but never shipped. The sdist's include list is
+  maintained by hand, and a list like that goes stale in one direction only:
+  the file does not ship, downstream packagers -- Debian, conda-forge,
+  Homebrew, Nix -- never receive it, and nothing fails, because no test reads
+  documentation. ([#26](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/26))
+
+### Added
+- `check-sdist` runs in CI and compares the built sdist against everything git
+  tracks. A file that is committed but not packaged now fails the build. The
+  single exception, `.git-blame-ignore-revs`, is declared in `pyproject.toml`
+  with its reason.
+- The full suite runs against the built wheel with `src/` deleted. Every other
+  job installs with `uv pip install -e .`, which leaves the source tree
+  importable whatever the wheel actually contains -- so a module left out of
+  the package list, a missing data file or a broken `__init__` export would
+  have passed every check. The `package` job previously ran a ten-line smoke
+  script against the wheel and nothing more.
+
+### Changed
+- The `py.typed` test checks the installed package instead of `src/`. A marker
+  sitting in the repository says nothing about what a user receives.
+
 ### Added
 - The workflow files are audited on every pull request. They were the one part
   of this repository nothing read, and they are the part that runs with a
