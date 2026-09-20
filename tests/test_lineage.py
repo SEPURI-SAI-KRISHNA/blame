@@ -1488,3 +1488,78 @@ def test_a_negative_row_counts_from_the_end(tmp_path):
     assert {k: v.tolist() for k, v in run.why(row=-1).sources.items()} == {
         k: v.tolist() for k, v in run.why(row=out_rows - 1).sources.items()
     }
+
+
+# -- diff tolerance ---------------------------------------------------------
+#
+# `rtol` is what puts diff in a test suite -- floating point makes a recomputed
+# total differ in the last bits for reasons nobody wants reported. None of it
+# had a test, including the elementwise fallback.
+
+
+def test_a_difference_inside_the_tolerance_is_not_a_difference():
+    before = _sales(*_books(qty3=4.0))
+    after = _sales(*_books(qty3=4.0 + 4e-12))
+
+    assert before.diff(after, on=["region", "order_id"]), "the totals did move"
+    assert not before.diff(after, on=["region", "order_id"], rtol=1e-9), (
+        "a relative difference of about 1e-12 is what rtol=1e-9 exists to ignore"
+    )
+
+
+def test_a_difference_outside_the_tolerance_is_still_reported():
+    before = _sales(*_books(qty3=4.0))
+    after = _sales(*_books(qty3=9.0))
+
+    d = before.diff(after, on=["region", "order_id"], rtol=1e-9)
+    assert d, "a change of 5 units is not floating-point noise"
+    assert [c.column for c in d.changes[0].cells] == ["total"]
+
+
+def test_tolerance_is_relative_not_absolute():
+    """`rtol` scales with the value, which is the whole point: the same
+    absolute wobble is noise on a total of 72 and a real change on 0.0001."""
+    from blame.diff import _differs
+
+    assert not _differs(72.0, 72.0 + 4e-11, rtol=1e-9)
+    assert _differs(0.0001, 0.0001 + 4e-11, rtol=1e-9)
+
+
+def test_two_missing_values_are_not_a_difference():
+    """NA == NA, or every row with a gap in it reports as changed on every
+    run. The vectorized path and the elementwise fallback have to agree."""
+    from blame.diff import _differs
+
+    assert not _differs(float("nan"), float("nan"), rtol=0.0)
+    assert not _differs(pd.NA, pd.NA, rtol=0.0)
+    assert _differs(float("nan"), 1.0, rtol=0.0)
+    assert _differs(1.0, float("nan"), rtol=0.0)
+
+
+def test_the_fallback_compares_cells_that_hold_arrays():
+    """A column of lists or arrays cannot be compared with `Series.ne`, which
+    raises rather than returning a mask. Cells like that turn up in real frames
+    -- a groupby that aggregates into lists, anything after `agg(list)`."""
+    from blame.diff import _differs
+
+    assert not _differs(np.array([1, 2]), np.array([1, 2]), rtol=0.0)
+    assert _differs(np.array([1, 2]), np.array([1, 3]), rtol=0.0)
+    assert _differs(np.array([1, 2]), np.array([1, 2, 3]), rtol=0.0)
+
+
+def test_the_fallback_runs_when_a_column_cannot_be_compared_wholesale():
+    """`Series.ne` raises on cells holding arrays rather than returning a mask,
+    so `_ne_mask` falls back to comparing element by element. The fallback is
+    the only thing standing between a column of arrays and a crashed diff."""
+    from blame.diff import _ne_mask
+
+    a = pd.Series([np.array([1, 2]), np.array([3])], dtype=object)
+    b = pd.Series([np.array([1, 2]), np.array([4])], dtype=object)
+    assert _ne_mask(a, b, 0.0).tolist() == [False, True]
+
+
+def test_values_that_are_not_numbers_compare_as_themselves():
+    from blame.diff import _differs
+
+    assert not _differs("north", "north", rtol=1e-9)
+    assert _differs("north", "south", rtol=1e-9)

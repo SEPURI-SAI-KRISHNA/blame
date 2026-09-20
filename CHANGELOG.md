@@ -6,6 +6,27 @@ Notable changes to `pandas-blame`. Format follows
 
 ## [Unreleased]
 
+### Added
+- The documented public API has tests. The suite reached `why()` and `diff()`
+  through the objects `trace()` yields -- 59 call sites -- while the README
+  reaches them through the module, `blame.last_run().why(...)`, with three.
+  Different code path, and the one every reader runs first. The README's
+  example is now extracted from `README.md` and executed, so it fails when the
+  README drifts rather than when a reader tries it.
+  (part of [#31](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/31))
+- `diff(..., rtol=...)` has tests. It had none, and it is the argument that
+  makes `blame diff` usable in a test suite: floating point means a recomputed
+  total differs in the last bits for reasons nobody wants reported. Covered
+  now: a difference inside the tolerance is not reported, one outside still is,
+  the tolerance is relative rather than absolute, NA equals NA, and the
+  elementwise fallback compares columns holding arrays, where `Series.ne`
+  raises instead of returning a mask.
+  ([#63](https://github.com/SEPURI-SAI-KRISHNA/blame/issues/63))
+
+### Changed
+- The coverage floor rises from 89% to 90%. `__init__.py` goes from 76% to
+  100% and `diff.py` from 87% to 93%.
+
 ## [0.2.0] - 2026-09-16
 
 The release where `.loc` and `.iloc` started being traced, `why()` and

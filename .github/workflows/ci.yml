@@ -218,6 +218,8 @@ jobs:
         # the current figure so that a pandas patch release moving a branch
         # somewhere is not reported as a coverage regression; a real one, like
         # a module going untested, moves it by several points.
+        #
+        # 89 -> 90 when the public API and the diff tolerance got tests.
         if: ${{ matrix.coverage }}
         shell: bash
         env:
@@ -232,7 +234,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           "$PY" -m coverage html
-          "$PY" -m coverage report --fail-under=89
+          "$PY" -m coverage report --fail-under=90
 
       - name: The line-by-line report, when the floor is not met
         # Which lines are uncovered is the only useful thing to know at that
