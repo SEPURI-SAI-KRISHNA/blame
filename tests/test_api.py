@@ -87,7 +87,12 @@ def test_module_level_forward_is_the_run_objects_forward():
         kept = orders[orders.qty > 0]
 
     assert len(kept) == 3
-    assert blame.forward(row=0) == pytest.approx(handle.run.forward(row=0))
+    direct = handle.run.forward(row=0)
+    through_module = blame.forward(row=0)
+    assert direct, "row 0 survives the filter, so it reaches something"
+    assert through_module.keys() == direct.keys()
+    for fid, rows in direct.items():
+        assert through_module[fid].tolist() == rows.tolist()
 
 
 def test_last_run_is_the_run_just_recorded():
@@ -117,19 +122,25 @@ def test_diff_accepts_run_ids_as_strings():
     far as the suite was concerned."""
     _csvs()
 
-    def run(qty):
+    def run(total):
         with blame.trace() as handle:
             orders = pd.read_csv("orders.csv")
-            orders.loc[0, "qty"] = qty
+            orders.loc[0, "total"] = total
             kept = orders[orders.qty > 0]
             kept.groupby("customer_id", as_index=False)["total"].sum()
         return handle.run
 
-    before, after = run(2), run(7)
+    before, after = run(20.0), run(99.0)
 
     by_object = blame.diff(before, after, on=["customer_id"])
     by_id = blame.diff(before.run_id, after.run_id, on=["customer_id"])
+
+    # Without this the test compares two empty lists and passes however broken
+    # loading by id is. An earlier version changed `qty`, which the pipeline
+    # only filters on -- the summed column is `total`, so nothing moved.
+    assert by_object.changes, "the totals moved, so the diff must not be empty"
     assert [c.key for c in by_id.changes] == [c.key for c in by_object.changes]
+    assert [str(c) for c in by_id.changes[0].cells] == [str(c) for c in by_object.changes[0].cells]
 
 
 def test_the_run_is_not_available_until_the_block_has_exited():
